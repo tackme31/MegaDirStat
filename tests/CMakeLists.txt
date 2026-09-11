@@ -18,3 +18,11 @@ megadirstat_add_test(tst_sizenode tst_sizenode.cpp)
 megadirstat_add_test(tst_treemaplayout tst_treemaplayout.cpp)
 megadirstat_add_test(tst_mock tst_mock.cpp)
 megadirstat_add_test(tst_runcachedir tst_runcachedir.cpp)
+
+# The tree model lives in the app target; compile it in directly. It needs a
+# QApplication for its style icons, so this one test links Widgets.
+megadirstat_add_test(tst_sizetreemodel tst_sizetreemodel.cpp
+    ${PROJECT_SOURCE_DIR}/src/ui/SizeTreeModel.h ${PROJECT_SOURCE_DIR}/src/ui/SizeTreeModel.cpp)
+target_link_libraries(tst_sizetreemodel PRIVATE Qt6::Widgets)
+set_property(TEST tst_sizetreemodel APPEND PROPERTY
+    ENVIRONMENT_MODIFICATION "QT_QPA_PLATFORM=set:offscreen")

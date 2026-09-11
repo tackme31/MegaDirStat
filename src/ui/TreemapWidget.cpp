@@ -1,5 +1,6 @@
 #include "ui/TreemapWidget.h"
 
+#include <QContextMenuEvent>
 #include <QHelpEvent>
 #include <QLocale>
 #include <QMouseEvent>
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
 
 namespace
@@ -103,9 +105,23 @@ TreemapWidget::TreemapWidget(QWidget* parent) : QWidget(parent)
 void TreemapWidget::setSnapshot(SnapshotPtr snapshot)
 {
     mSnapshot = std::move(snapshot);
+    mScope = nullptr;
     mSelected = nullptr;
     mSelectedAggregate = false;
     assignColors();
+    mDirty = true;
+    update();
+}
+
+void TreemapWidget::setScope(const SizeNode* scope)
+{
+    if (scope == mScope)
+    {
+        return;
+    }
+    mScope = scope;
+    mSelected = nullptr;
+    mSelectedAggregate = false;
     mDirty = true;
     update();
 }
@@ -144,13 +160,26 @@ bool TreemapWidget::event(QEvent* event)
         if (const TreemapCell* cell = cellAt(help->pos()))
         {
             const QLocale locale;
-            const QString text =
-                cell->isAggregate()
-                    ? tr("%n small item(s) in %1", nullptr, cell->aggregatedCount)
-                              .arg(cell->node->path()) +
-                          QLatin1Char('\n') + locale.formattedDataSize(cell->aggregatedSize)
-                    : cell->node->path() + QLatin1Char('\n') +
-                          locale.formattedDataSize(cell->node->size);
+            const SizeNode& node = *cell->node;
+            QString text;
+            if (cell->isAggregate())
+            {
+                text = tr("%n small item(s) in %1", nullptr, cell->aggregatedCount).arg(node.path()) +
+                       QLatin1Char('\n') + locale.formattedDataSize(cell->aggregatedSize);
+            }
+            else if (node.isFolder())
+            {
+                // A folder cell is one too small to subdivide; say so, or it
+                // passes for a single large file.
+                const int files = static_cast<int>(std::min<qint64>(node.fileCount, INT_MAX));
+                text = node.path() + QLatin1Char('\n') +
+                       tr("Folder, %Ln file(s), %1", nullptr, files)
+                           .arg(locale.formattedDataSize(node.size));
+            }
+            else
+            {
+                text = node.path() + QLatin1Char('\n') + locale.formattedDataSize(node.size);
+            }
             QToolTip::showText(help->globalPos(), text, this);
         }
         else
@@ -229,7 +258,9 @@ void TreemapWidget::resizeEvent(QResizeEvent* event)
 
 void TreemapWidget::mousePressEvent(QMouseEvent* event)
 {
-    if (event->button() == Qt::LeftButton)
+    // Right-click selects too, like an item view, so the context menu visibly
+    // applies to the cell under the cursor.
+    if (event->button() == Qt::LeftButton || event->button() == Qt::RightButton)
     {
         if (const TreemapCell* cell = cellAt(event->position().toPoint()))
         {
@@ -241,6 +272,12 @@ void TreemapWidget::mousePressEvent(QMouseEvent* event)
         }
     }
     QWidget::mousePressEvent(event);
+}
+
+void TreemapWidget::contextMenuEvent(QContextMenuEvent* event)
+{
+    const TreemapCell* cell = cellAt(event->pos());
+    emit contextMenuRequested(cell ? cell->node : nullptr, event->globalPos());
 }
 
 void TreemapWidget::rebuild()
@@ -266,7 +303,8 @@ void TreemapWidget::rebuild()
     TreemapOptions options;
     options.minSide = kMinCellPx * dpr;
     options.minArea = options.minSide * options.minSide;
-    mCells = layoutTreemap(*mSnapshot->root, QRectF(QPointF(0, 0), QSizeF(pixels)), options);
+    const SizeNode& top = mScope ? *mScope : *mSnapshot->root;
+    mCells = layoutTreemap(top, QRectF(QPointF(0, 0), QSizeF(pixels)), options);
     mCellIndex.reserve(static_cast<qsizetype>(mCells.size()));
     for (std::size_t i = 0; i < mCells.size(); ++i)
     {

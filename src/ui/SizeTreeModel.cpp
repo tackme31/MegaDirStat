@@ -16,6 +16,7 @@ void SizeTreeModel::setSnapshot(SnapshotPtr snapshot)
 {
     beginResetModel();
     mSnapshot = std::move(snapshot);
+    mScope = nullptr;
     endResetModel();
 }
 
@@ -24,18 +25,39 @@ SnapshotPtr SizeTreeModel::snapshot() const
     return mSnapshot;
 }
 
+void SizeTreeModel::setScope(const SizeNode* scope)
+{
+    if (scope && !scope->parent)
+    {
+        scope = nullptr;
+    }
+    if (scope == mScope)
+    {
+        return;
+    }
+    beginResetModel();
+    mScope = scope;
+    endResetModel();
+}
+
+const SizeNode* SizeTreeModel::scope() const
+{
+    return mScope;
+}
+
+bool SizeTreeModel::isTopLevel(const SizeNode* node) const
+{
+    return mScope ? node == mScope : node->parent && !node->parent->parent;
+}
+
+int SizeTreeModel::rowOf(const SizeNode* node) const
+{
+    return node == mScope ? 0 : node->row;
+}
+
 const SizeNode* SizeTreeModel::nodeAt(const QModelIndex& index) const
 {
     return index.isValid() ? static_cast<const SizeNode*>(index.internalPointer()) : nullptr;
-}
-
-const SizeNode* SizeTreeModel::nodeOrRoot(const QModelIndex& index) const
-{
-    if (index.isValid())
-    {
-        return nodeAt(index);
-    }
-    return mSnapshot ? mSnapshot->root.get() : nullptr;
 }
 
 QModelIndex SizeTreeModel::indexFor(const SizeNode* node, int column) const
@@ -44,14 +66,33 @@ QModelIndex SizeTreeModel::indexFor(const SizeNode* node, int column) const
     {
         return {};
     }
-    return createIndex(node->row, column, const_cast<SizeNode*>(node));
+    if (mScope)
+    {
+        const SizeNode* n = node;
+        while (n && n != mScope)
+        {
+            n = n->parent;
+        }
+        if (!n)
+        {
+            return {};
+        }
+    }
+    return createIndex(rowOf(node), column, const_cast<SizeNode*>(node));
 }
 
 QModelIndex SizeTreeModel::index(int row, int column, const QModelIndex& parent) const
 {
-    const SizeNode* p = nodeOrRoot(parent);
-    if (!p || row < 0 || column < 0 || column >= ColumnCount ||
-        row >= static_cast<int>(p->children.size()))
+    if (!mSnapshot || row < 0 || column < 0 || column >= ColumnCount)
+    {
+        return {};
+    }
+    if (!parent.isValid() && mScope)
+    {
+        return row == 0 ? createIndex(0, column, const_cast<SizeNode*>(mScope)) : QModelIndex();
+    }
+    const SizeNode* p = parent.isValid() ? nodeAt(parent) : mSnapshot->root.get();
+    if (row >= static_cast<int>(p->children.size()))
     {
         return {};
     }
@@ -61,21 +102,24 @@ QModelIndex SizeTreeModel::index(int row, int column, const QModelIndex& parent)
 QModelIndex SizeTreeModel::parent(const QModelIndex& child) const
 {
     const SizeNode* node = nodeAt(child);
-    if (!node || !node->parent || !node->parent->parent)
+    if (!node || isTopLevel(node))
     {
         return {};
     }
-    return createIndex(node->parent->row, 0, node->parent);
+    return createIndex(rowOf(node->parent), 0, node->parent);
 }
 
 int SizeTreeModel::rowCount(const QModelIndex& parent) const
 {
-    if (parent.column() > 0)
+    if (parent.column() > 0 || !mSnapshot)
     {
         return 0;
     }
-    const SizeNode* p = nodeOrRoot(parent);
-    return p ? static_cast<int>(p->children.size()) : 0;
+    if (parent.isValid())
+    {
+        return static_cast<int>(nodeAt(parent)->children.size());
+    }
+    return mScope ? 1 : static_cast<int>(mSnapshot->root->children.size());
 }
 
 int SizeTreeModel::columnCount(const QModelIndex&) const
@@ -144,7 +188,7 @@ QVariant SizeTreeModel::data(const QModelIndex& index, int role) const
         case DepthRole:
         {
             int depth = 0;
-            for (const SizeNode* p = node->parent; p && p->parent; p = p->parent)
+            for (const SizeNode* p = node; !isTopLevel(p); p = p->parent)
             {
                 ++depth;
             }

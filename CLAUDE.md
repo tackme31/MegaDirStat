@@ -28,12 +28,16 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
   `MegaAccountSource`（ログイン・2FA・fetchNodes の段階表示・走査・使用量・catchup での再読込）、
   ウィンドウ内のログイン画面 `LoginView`、`RunCacheDir`（SDK キャッシュの後始末、単体テスト付き）。
   詳細は DESIGN.md §4〜§6。モックでログイン画面を出すには `--mock-login` / `--mock-2fa`。
+- **スコープ**（2026-09-12）: 右クリック → Focus でフォルダに絞る（ツリーのルートも絞る）、ツールバーの
+  Up / パンくず / メニューで戻る。分割しなかったフォルダのセルのツールチップに「Folder, N files」。
+  モックで `drive` を使って LLM 側でスクショ確認済み。モデルは `tst_sizetreemodel`（`QAbstractItemModelTester`）。
 
 ### 次にやること
 
 1. **ユーザーによる実アカウントでの確認待ち**（LLM はログインしない）。見てもらう点: 通常ログイン、
    2FA（正しいコード / 誤ったコード / Back）、読み込みの段階表示、Reload、終了後に
-   `%LOCALAPPDATA%\MegaDirStat\sdk-cache\` が空になること。問題が出たらその修正から。
+   `%LOCALAPPDATA%\MegaDirStat\sdk-cache\` が空になること、60 万ファイルでのスコープの使い勝手。
+   問題が出たらその修正から。
 2. 2FA ページとログイン失敗時の表示は LLM 側でスクショ未確認（入力の注入 `drive` が要るため）。
 3. 以降は DESIGN.md §8 の未決事項（Q3 対象ルート、Q4 バージョン）や、ツリーの列ソートなど。
 
@@ -147,6 +151,8 @@ C:/Qt/Tools/CMake_64/bin/ctest.exe --preset msvc-debug
 ## 検証
 
 - 単体テスト（Qt Test）は `MegaDirStatCore` と `MegaDirStatMock` だけをリンクし、SDK なしで回す。
+  例外として `tst_sizetreemodel` は `src/ui/SizeTreeModel.cpp` を直接コンパイルし Widgets をリンクする
+  （offscreen で動く）。
 - 画面の確認はモック起動で行う（`--mock <fixture.json>`、`--mock-generate <件数>`。仕様は §4）。
   **見た目の確認・調整は `ui-style` スキル**（`.claude/skills/ui-style/`）を使う。`ui_shot.py` は
   モック引数なしでは起動を拒否する作りなので、実アカウントが写ることはない。

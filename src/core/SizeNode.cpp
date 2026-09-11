@@ -3,6 +3,7 @@
 #include <QStringList>
 
 #include <algorithm>
+#include <utility>
 
 SizeNode* SizeNode::addFolder(QString folderName)
 {
@@ -86,4 +87,30 @@ void finalizeTree(SizeNode& root)
     {
         root.children[i]->row = static_cast<int>(i);
     }
+}
+
+const SizeNode* findSamePath(const SizeNode& root, const SizeNode& folder)
+{
+    // Names can contain '/', so compare segment lists rather than path().
+    QStringList names;
+    for (const SizeNode* n = &folder; n->parent; n = n->parent)
+    {
+        names.prepend(n->name);
+    }
+
+    const SizeNode* current = &root;
+    for (const QString& name : std::as_const(names))
+    {
+        const auto it = std::find_if(current->children.cbegin(),
+                                     current->children.cend(),
+                                     [&name](const std::unique_ptr<SizeNode>& child) {
+                                         return child->isFolder() && child->name == name;
+                                     });
+        if (it == current->children.cend())
+        {
+            break;
+        }
+        current = it->get();
+    }
+    return current;
 }

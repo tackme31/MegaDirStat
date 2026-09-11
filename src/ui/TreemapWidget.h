@@ -9,10 +9,10 @@
 
 #include <vector>
 
-// Flat treemap of a whole snapshot: one colour per file type, a uniform gap
-// between cells, and anything below kMinCellPx grouped into one muted cell. The
-// rendered image is cached and only rebuilt on resize, a palette change or a
-// new snapshot; selection is drawn on top of it.
+// Flat treemap of a snapshot, or of one folder of it (the scope): one colour
+// per file type, a uniform gap between cells, and anything below kMinCellPx
+// grouped into one muted cell. The rendered image is cached and only rebuilt on
+// resize, a palette change, a new snapshot or scope; selection is drawn on top.
 class TreemapWidget : public QWidget
 {
     Q_OBJECT
@@ -20,12 +20,18 @@ class TreemapWidget : public QWidget
 public:
     explicit TreemapWidget(QWidget* parent = nullptr);
 
+    // Also clears the scope.
     void setSnapshot(SnapshotPtr snapshot);
+    // A folder of the current snapshot; nullptr shows the whole account.
+    // Colours stay those of the whole account, so they keep their meaning.
+    void setScope(const SizeNode* scope);
     void setSelectedNode(const SizeNode* node);
 
 signals:
     // For a merged group of small items, node is the folder holding them.
     void nodeClicked(const SizeNode* node);
+    // node is as for nodeClicked, or nullptr when no cell is under the cursor.
+    void contextMenuRequested(const SizeNode* node, const QPoint& globalPos);
 
 protected:
     bool event(QEvent* event) override;
@@ -33,6 +39,7 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
 private:
     const TreemapCell* cellAt(const QPoint& pos) const;
@@ -42,6 +49,7 @@ private:
     QRgb baseColor(const SizeNode& node) const;
 
     SnapshotPtr mSnapshot;
+    const SizeNode* mScope = nullptr;
     std::vector<TreemapCell> mCells;
     QHash<const SizeNode*, qsizetype> mCellIndex;
     // Keyed by the folder; a folder has at most one merged group.

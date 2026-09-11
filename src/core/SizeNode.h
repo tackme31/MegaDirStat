@@ -42,3 +42,8 @@ struct SizeNode
 // Aggregates size, fileCount and mtime into every folder, sorts each children
 // list by size descending (then name), and assigns row.
 void finalizeTree(SizeNode& root);
+
+// The folder under root at the same path as folder (which may belong to another
+// tree), or its deepest existing ancestor; root when nothing matches. MEGA allows
+// duplicate names in a folder, so the first match by name wins.
+const SizeNode* findSamePath(const SizeNode& root, const SizeNode& folder);

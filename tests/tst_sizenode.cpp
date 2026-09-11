@@ -62,6 +62,30 @@ private slots:
         QCOMPARE(root.path(), QString());
     }
 
+    void findSamePathAcrossTrees()
+    {
+        SizeNode oldRoot;
+        oldRoot.kind = NodeKind::Folder;
+        SizeNode* oldPhotos =
+            oldRoot.addFolder(QStringLiteral("Cloud Drive"))->addFolder(QStringLiteral("Photos"));
+        SizeNode* oldTrip = oldPhotos->addFolder(QStringLiteral("Trip"));
+
+        SizeNode newRoot;
+        newRoot.kind = NodeKind::Folder;
+        SizeNode* drive = newRoot.addFolder(QStringLiteral("Cloud Drive"));
+        drive->addFile(QStringLiteral("Photos"), 5); // a file with the name does not count
+        SizeNode* photos = drive->addFolder(QStringLiteral("Photos"));
+
+        QCOMPARE(findSamePath(newRoot, *oldPhotos), photos);
+        // Trip is gone: fall back to the deepest ancestor that still exists.
+        QCOMPARE(findSamePath(newRoot, *oldTrip), photos);
+        QCOMPARE(findSamePath(newRoot, oldRoot), &newRoot);
+
+        SizeNode emptyRoot;
+        emptyRoot.kind = NodeKind::Folder;
+        QCOMPARE(findSamePath(emptyRoot, *oldTrip), &emptyRoot);
+    }
+
     void extension_data()
     {
         QTest::addColumn<QString>("name");

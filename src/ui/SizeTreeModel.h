@@ -6,7 +6,8 @@
 #include <QIcon>
 
 // Read-only tree model straight over an AccountSnapshot. The snapshot is
-// immutable, so SizeNode pointers double as stable internal ids.
+// immutable, so SizeNode pointers double as stable internal ids. With a scope
+// set, that folder is the only top-level row and nothing outside it is shown.
 class SizeTreeModel : public QAbstractItemModel
 {
     Q_OBJECT
@@ -30,10 +31,17 @@ public:
 
     explicit SizeTreeModel(QObject* parent = nullptr);
 
+    // Also clears the scope.
     void setSnapshot(SnapshotPtr snapshot);
     SnapshotPtr snapshot() const;
 
+    // A folder of the current snapshot; nullptr (or the invisible root) shows
+    // the whole account.
+    void setScope(const SizeNode* scope);
+    const SizeNode* scope() const;
+
     const SizeNode* nodeAt(const QModelIndex& index) const;
+    // Invalid for nodes outside the scope.
     QModelIndex indexFor(const SizeNode* node, int column = 0) const;
 
     QModelIndex index(int row, int column, const QModelIndex& parent = {}) const override;
@@ -47,9 +55,11 @@ public:
                         int role = Qt::DisplayRole) const override;
 
 private:
-    const SizeNode* nodeOrRoot(const QModelIndex& index) const;
+    bool isTopLevel(const SizeNode* node) const;
+    int rowOf(const SizeNode* node) const;
 
     SnapshotPtr mSnapshot;
+    const SizeNode* mScope = nullptr;
     QIcon mFolderIcon;
     QIcon mFileIcon;
 };

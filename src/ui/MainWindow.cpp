@@ -6,9 +6,11 @@
 #include "ui/TreemapWidget.h"
 
 #include <QAction>
+#include <QEvent>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLocale>
+#include <QMenu>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QSplitter>
@@ -29,6 +31,7 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
     mTree->setUniformRowHeights(true);
     mTree->setAlternatingRowColors(true);
     mTree->setSelectionMode(QAbstractItemView::SingleSelection);
+    mTree->setContextMenuPolicy(Qt::CustomContextMenu);
     mTree->setItemDelegateForColumn(SizeTreeModel::PercentColumn, new PercentBarDelegate(mTree));
     mTree->header()->setStretchLastSection(false);
     mTree->header()->setSectionResizeMode(SizeTreeModel::NameColumn, QHeaderView::Stretch);
@@ -60,6 +63,14 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
     mToolBar->setMovable(false);
     mReloadAction = mToolBar->addAction(tr("Reload"), this, &MainWindow::reload);
     mReloadAction->setShortcut(QKeySequence::Refresh);
+    mToolBar->addSeparator();
+    mUpAction = mToolBar->addAction(tr("Up"), this, [this] { scopeUp(1); });
+    mUpAction->setShortcuts({QKeySequence(Qt::ALT | Qt::Key_Up), QKeySequence(Qt::Key_Backspace)});
+    mUpAction->setToolTip(tr("Show the parent folder (Alt+Up)"));
+    mBreadcrumb = new QLabel;
+    mBreadcrumb->setTextFormat(Qt::RichText);
+    mBreadcrumb->setContentsMargins(8, 0, 8, 0);
+    mToolBar->addWidget(mBreadcrumb);
 
     mStatusLabel = new QLabel;
     mProgressBar = new QProgressBar;
@@ -81,6 +92,14 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
             this,
             &MainWindow::onCurrentChanged);
     connect(mTreemap, &TreemapWidget::nodeClicked, this, &MainWindow::onTreemapClicked);
+    connect(mTreemap, &TreemapWidget::contextMenuRequested, this, &MainWindow::showContextMenu);
+    connect(mTree, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        showContextMenu(mModel->nodeAt(mTree->indexAt(pos)), mTree->viewport()->mapToGlobal(pos));
+    });
+    connect(mBreadcrumb, &QLabel::linkActivated, this, [this](const QString& link) {
+        scopeUp(link.toInt());
+    });
+    updateScopeBar();
 
     resize(1100, 800);
 }
@@ -96,6 +115,17 @@ void MainWindow::start()
     {
         reload();
     }
+}
+
+void MainWindow::changeEvent(QEvent* event)
+{
+    // The breadcrumb's links carry the accent colour inline; redo them for a
+    // light/dark switch.
+    if (event->type() == QEvent::PaletteChange && mBreadcrumb)
+    {
+        updateScopeBar();
+    }
+    QMainWindow::changeEvent(event);
 }
 
 void MainWindow::showLoginView()
@@ -189,8 +219,11 @@ void MainWindow::onLoaded(SnapshotPtr snapshot)
     mHasSnapshot = true;
     showAccountView();
 
+    // Resolved before the old snapshot, which mScope points into, is let go.
+    const SizeNode* scope = mScope ? findSamePath(*snapshot->root, *mScope) : nullptr;
     mModel->setSnapshot(snapshot);
     mTreemap->setSnapshot(snapshot);
+    setScope(scope);
 
     const QLocale locale;
     QString status = tr("%1 in %2 files")
@@ -241,4 +274,100 @@ void MainWindow::onTreemapClicked(const SizeNode* node)
     // scrollTo expands the collapsed ancestors on the way.
     mTree->setCurrentIndex(index);
     mTree->scrollTo(index, QAbstractItemView::PositionAtCenter);
+}
+
+void MainWindow::showContextMenu(const SizeNode* node, const QPoint& globalPos)
+{
+    QMenu menu(this);
+    // A file (or a merged group, which stands for its folder) focuses on the
+    // folder it is in.
+    const SizeNode* target = node && !node->isFolder() ? node->parent : node;
+    if (target && target->parent && target != mScope && target->size > 0)
+    {
+        QString name = target->name;
+        if (name.size() > 48)
+        {
+            name = name.left(47) + QChar(0x2026);
+        }
+        name.replace(QLatin1Char('&'), QLatin1String("&&")); // not a mnemonic
+        menu.addAction(tr("Focus on “%1”").arg(name), this, [this, target] { setScope(target); });
+    }
+    if (mScope)
+    {
+        if (!menu.isEmpty())
+        {
+            menu.addSeparator();
+        }
+        menu.addAction(mUpAction);
+        menu.addAction(tr("Show Whole Account"), this, [this] { setScope(nullptr, mScope); });
+    }
+    if (!menu.isEmpty())
+    {
+        menu.exec(globalPos);
+    }
+}
+
+void MainWindow::setScope(const SizeNode* scope, const SizeNode* select)
+{
+    if (scope && !scope->parent)
+    {
+        scope = nullptr;
+    }
+    mScope = scope;
+    mModel->setScope(scope);
+    mTreemap->setScope(scope);
+    if (scope)
+    {
+        mTree->expand(mModel->index(0, 0));
+    }
+    updateScopeBar();
+    if (select)
+    {
+        onTreemapClicked(select);
+    }
+    else
+    {
+        // A model reset keeps the old scroll offset, which would hide the new top row.
+        mTree->scrollToTop();
+    }
+}
+
+void MainWindow::scopeUp(int levels)
+{
+    if (!mScope)
+    {
+        return;
+    }
+    const SizeNode* scope = mScope;
+    for (int i = 0; i < levels && scope->parent; ++i)
+    {
+        scope = scope->parent;
+    }
+    setScope(scope, mScope);
+}
+
+void MainWindow::updateScopeBar()
+{
+    mUpAction->setEnabled(mScope != nullptr);
+    if (!mScope)
+    {
+        mBreadcrumb->clear();
+        return;
+    }
+    // Each link's href is how many levels up it goes; "All" goes to the root.
+    // QPalette::Link is near the text colour in the Windows 11 style, so the
+    // accent colour marks what is clickable.
+    const QString link =
+        QStringLiteral("<a href=\"%1\" style=\"text-decoration:none; color:%3\">%2</a>");
+    const QString accent = palette().color(QPalette::Highlight).name();
+    QStringList parts;
+    int levels = 0;
+    for (const SizeNode* n = mScope; n->parent; n = n->parent, ++levels)
+    {
+        const QString name = n->name.toHtmlEscaped();
+        parts.prepend(levels == 0 ? QStringLiteral("<b>%1</b>").arg(name)
+                                  : link.arg(QString::number(levels), name, accent));
+    }
+    parts.prepend(link.arg(QString::number(levels), tr("All").toHtmlEscaped(), accent));
+    mBreadcrumb->setText(parts.join(QStringLiteral(" &rsaquo; ")));
 }
