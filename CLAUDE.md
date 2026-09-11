@@ -70,7 +70,7 @@ Serena MCP が有効。`src/`、`main.cpp`、`tests/` の読み書きは Serena 
 
 ```
 bash scripts/verify.sh              # ビルド＋警告ゲート＋ctest。作業の終わりに必ず通す
-powershell -File scripts/run.ps1 -AppArgs '--mock-generate','20000'   # ビルドして起動
+./scripts/run.ps1 -AppArgs '--mock-generate','20000'   # ビルドして起動（PowerShell から直接。`powershell -File` 経由だと配列が 1 つの文字列に潰れる）
 python .claude/skills/ui-style/scripts/ui_shot.py cycle <name>        # ビルド→起動→スクショ（ui-style スキル）
 ```
 
