@@ -104,6 +104,7 @@ void TreemapWidget::setSnapshot(SnapshotPtr snapshot)
 {
     mSnapshot = std::move(snapshot);
     mSelected = nullptr;
+    mSelectedAggregate = false;
     assignColors();
     mDirty = true;
     update();
@@ -111,11 +112,14 @@ void TreemapWidget::setSnapshot(SnapshotPtr snapshot)
 
 void TreemapWidget::setSelectedNode(const SizeNode* node)
 {
+    // The tree echoes a click on a merged group back as its folder; returning
+    // here keeps the outline on the group instead of the whole folder.
     if (node == mSelected)
     {
         return;
     }
     mSelected = node;
+    mSelectedAggregate = false;
     update();
 }
 
@@ -130,12 +134,6 @@ const TreemapCell* TreemapWidget::cellAt(const QPoint& pos) const
         }
     }
     return nullptr;
-}
-
-const SizeNode* TreemapWidget::nodeAt(const QPoint& pos) const
-{
-    const TreemapCell* cell = cellAt(pos);
-    return cell ? cell->node : nullptr;
 }
 
 bool TreemapWidget::event(QEvent* event)
@@ -191,11 +189,11 @@ void TreemapWidget::paintEvent(QPaintEvent*)
 
     if (mSelected)
     {
-        const auto it = mCellIndex.constFind(mSelected);
-        if (it != mCellIndex.cend())
+        const qsizetype index = selectedCellIndex();
+        if (index >= 0)
         {
             const qreal dpr = devicePixelRatioF();
-            const QRectF r = mCells[static_cast<std::size_t>(*it)].rect;
+            const QRectF r = mCells[static_cast<std::size_t>(index)].rect;
             const QRectF logical(r.topLeft() / dpr, r.size() / dpr);
             painter.setRenderHint(QPainter::Antialiasing);
             painter.setBrush(Qt::NoBrush);
@@ -205,6 +203,22 @@ void TreemapWidget::paintEvent(QPaintEvent*)
             painter.drawRect(logical.adjusted(2, 2, -2, -2));
         }
     }
+}
+
+qsizetype TreemapWidget::selectedCellIndex() const
+{
+    // After a resize the folder may no longer have a merged group; then the
+    // folder itself is outlined.
+    if (mSelectedAggregate)
+    {
+        const auto it = mAggregateIndex.constFind(mSelected);
+        if (it != mAggregateIndex.cend())
+        {
+            return *it;
+        }
+    }
+    const auto it = mCellIndex.constFind(mSelected);
+    return it != mCellIndex.cend() ? *it : -1;
 }
 
 void TreemapWidget::resizeEvent(QResizeEvent* event)
@@ -217,9 +231,13 @@ void TreemapWidget::mousePressEvent(QMouseEvent* event)
 {
     if (event->button() == Qt::LeftButton)
     {
-        if (const SizeNode* node = nodeAt(event->position().toPoint()))
+        if (const TreemapCell* cell = cellAt(event->position().toPoint()))
         {
-            emit nodeClicked(node);
+            // Set before emitting, so the tree's echo finds it already selected.
+            mSelected = cell->node;
+            mSelectedAggregate = cell->isAggregate();
+            update();
+            emit nodeClicked(cell->node);
         }
     }
     QWidget::mousePressEvent(event);
@@ -230,6 +248,7 @@ void TreemapWidget::rebuild()
     mDirty = false;
     mCells.clear();
     mCellIndex.clear();
+    mAggregateIndex.clear();
     mImage = QImage();
     if (!mSnapshot || !mSnapshot->root)
     {
@@ -252,10 +271,8 @@ void TreemapWidget::rebuild()
     for (std::size_t i = 0; i < mCells.size(); ++i)
     {
         // An aggregate's node is its parent folder, which has a cell of its own.
-        if (!mCells[i].isAggregate())
-        {
-            mCellIndex.insert(mCells[i].node, static_cast<qsizetype>(i));
-        }
+        auto& index = mCells[i].isAggregate() ? mAggregateIndex : mCellIndex;
+        index.insert(mCells[i].node, static_cast<qsizetype>(i));
     }
 
     const int gap = std::max(1, static_cast<int>(std::lround(dpr)));

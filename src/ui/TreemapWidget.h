@@ -23,11 +23,8 @@ public:
     void setSnapshot(SnapshotPtr snapshot);
     void setSelectedNode(const SizeNode* node);
 
-    // The painted cell under pos (widget coordinates), or nullptr. For a merged
-    // group of small items that is the folder holding them.
-    const SizeNode* nodeAt(const QPoint& pos) const;
-
 signals:
+    // For a merged group of small items, node is the folder holding them.
     void nodeClicked(const SizeNode* node);
 
 protected:
@@ -39,6 +36,7 @@ protected:
 
 private:
     const TreemapCell* cellAt(const QPoint& pos) const;
+    qsizetype selectedCellIndex() const;
     void rebuild();
     void assignColors();
     QRgb baseColor(const SizeNode& node) const;
@@ -46,9 +44,13 @@ private:
     SnapshotPtr mSnapshot;
     std::vector<TreemapCell> mCells;
     QHash<const SizeNode*, qsizetype> mCellIndex;
+    // Keyed by the folder; a folder has at most one merged group.
+    QHash<const SizeNode*, qsizetype> mAggregateIndex;
     QHash<QString, QRgb> mExtensionColors;
     QHash<const SizeNode*, QRgb> mFolderColors;
     QImage mImage;
     const SizeNode* mSelected = nullptr;
+    // mSelected is a folder picked through its merged group; outline the group.
+    bool mSelectedAggregate = false;
     bool mDirty = true;
 };
