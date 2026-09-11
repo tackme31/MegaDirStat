@@ -1,0 +1,55 @@
+# Build output
+/build*/
+CMakeLists.txt.user*
+CMakeUserPresets.json
+/.qtcreator/
+.clangd
+compile_commands.json
+
+# Compiler / IDE leftovers
+*.obj
+*.o
+*.pdb
+*.ilk
+*.idb
+*.sln
+*.suo
+*.vcxproj
+*vcxproj.*
+.vs/
+.vscode/
+*.autosave
+*~
+.*.swp
+.DS_Store
+Thumbs.db
+
+# Binaries
+*.exe
+*.dll
+*.so
+*.so.*
+*.dylib
+*.a
+
+# Python byte code
+__pycache__/
+*.pyc
+
+# bash stack dump
+bash.exe.stackdump
+
+# Local tooling config (contains absolute local paths / personal settings)
+.claude/settings.local.json
+.serena/
+.mcp.json
+
+# Local debug credentials, never commit
+env.local.ps1
+.env
+
+# MEGA SDK state cache, in case a dev run ever points basePath at the tree
+megaclient_statecache*
+
+# Screenshots of the running app may show real account contents
+.screenshots/
