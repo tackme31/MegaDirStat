@@ -29,11 +29,57 @@ constexpr std::array<QRgb, 12> kPalette = {
     qRgb(0xEA, 0xB3, 0x08), // yellow
 };
 constexpr QRgb kOtherFiles = qRgb(0x94, 0xA3, 0xB8);
-// Folders too small to subdivide, and merged groups of small items.
+// Folders too small to subdivide and merged groups of small items are painted
+// as their folder's main extension blended halfway towards this.
 constexpr QRgb kGrouped = qRgb(0x64, 0x74, 0x8B);
 
 // Logical px: anything thinner, or smaller than this squared, is grouped.
 constexpr double kMinCellPx = 16.0;
+
+QRgb muted(QRgb c)
+{
+    return qRgb((qRed(c) + qRed(kGrouped)) / 2,
+                (qGreen(c) + qGreen(kGrouped)) / 2,
+                (qBlue(c) + qBlue(kGrouped)) / 2);
+}
+
+// Returns the bytes per extension in folder's subtree, and records each
+// folder's largest extension (by bytes) in mainExtension.
+QHash<QString, qint64> collectExtensionBytes(const SizeNode& folder,
+                                             QHash<const SizeNode*, QString>& mainExtension)
+{
+    QHash<QString, qint64> bytes;
+    for (const auto& child : folder.children)
+    {
+        if (child->isFolder())
+        {
+            const QHash<QString, qint64> sub = collectExtensionBytes(*child, mainExtension);
+            for (auto it = sub.cbegin(); it != sub.cend(); ++it)
+            {
+                bytes[it.key()] += it.value();
+            }
+        }
+        else
+        {
+            bytes[child->extension()] += child->size;
+        }
+    }
+
+    auto best = bytes.cend();
+    for (auto it = bytes.cbegin(); it != bytes.cend(); ++it)
+    {
+        if (best == bytes.cend() || it.value() > best.value() ||
+            (it.value() == best.value() && it.key() < best.key()))
+        {
+            best = it;
+        }
+    }
+    if (best != bytes.cend())
+    {
+        mainExtension.insert(&folder, best.key());
+    }
+    return bytes;
+}
 
 // Rounds both edges independently, so neighbours that share a float edge also
 // share the pixel edge and nothing overlaps or leaves a hole.
@@ -58,7 +104,7 @@ void TreemapWidget::setSnapshot(SnapshotPtr snapshot)
 {
     mSnapshot = std::move(snapshot);
     mSelected = nullptr;
-    assignExtensionColors();
+    assignColors();
     mDirty = true;
     update();
 }
@@ -239,39 +285,24 @@ void TreemapWidget::rebuild()
         {
             continue;
         }
-        painter.fillRect(r, QColor(cell.isAggregate() ? kGrouped : baseColor(*cell.node)));
+        painter.fillRect(r, QColor(baseColor(*cell.node)));
     }
     painter.end();
     mImage.setDevicePixelRatio(dpr);
 }
 
-void TreemapWidget::assignExtensionColors()
+void TreemapWidget::assignColors()
 {
     mExtensionColors.clear();
+    mFolderColors.clear();
     if (!mSnapshot || !mSnapshot->root)
     {
         return;
     }
 
     // The extensions taking the most bytes get the distinct colours.
-    QHash<QString, qint64> bytes;
-    std::vector<const SizeNode*> stack{mSnapshot->root.get()};
-    while (!stack.empty())
-    {
-        const SizeNode* node = stack.back();
-        stack.pop_back();
-        if (node->isFolder())
-        {
-            for (const auto& child : node->children)
-            {
-                stack.push_back(child.get());
-            }
-        }
-        else
-        {
-            bytes[node->extension()] += node->size;
-        }
-    }
+    QHash<const SizeNode*, QString> mainExtension;
+    const QHash<QString, qint64> bytes = collectExtensionBytes(*mSnapshot->root, mainExtension);
 
     std::vector<std::pair<qint64, QString>> ranked;
     ranked.reserve(static_cast<std::size_t>(bytes.size()));
@@ -289,13 +320,20 @@ void TreemapWidget::assignExtensionColors()
     {
         mExtensionColors.insert(ranked[i].second, kPalette[i]);
     }
+
+    mFolderColors.reserve(mainExtension.size());
+    for (auto it = mainExtension.cbegin(); it != mainExtension.cend(); ++it)
+    {
+        mFolderColors.insert(it.key(), muted(mExtensionColors.value(it.value(), kOtherFiles)));
+    }
 }
 
 QRgb TreemapWidget::baseColor(const SizeNode& node) const
 {
+    // A folder only gets painted as a whole, or as the owner of a merged group.
     if (node.isFolder())
     {
-        return kGrouped;
+        return mFolderColors.value(&node, kGrouped);
     }
     return mExtensionColors.value(node.extension(), kOtherFiles);
 }

@@ -10,7 +10,7 @@
 #include <vector>
 
 // Flat treemap of a whole snapshot: one colour per file type, a uniform gap
-// between cells, and anything below kMinCellPx grouped into one grey cell. The
+// between cells, and anything below kMinCellPx grouped into one muted cell. The
 // rendered image is cached and only rebuilt on resize, a palette change or a
 // new snapshot; selection is drawn on top of it.
 class TreemapWidget : public QWidget
@@ -40,13 +40,14 @@ protected:
 private:
     const TreemapCell* cellAt(const QPoint& pos) const;
     void rebuild();
-    void assignExtensionColors();
+    void assignColors();
     QRgb baseColor(const SizeNode& node) const;
 
     SnapshotPtr mSnapshot;
     std::vector<TreemapCell> mCells;
     QHash<const SizeNode*, qsizetype> mCellIndex;
     QHash<QString, QRgb> mExtensionColors;
+    QHash<const SizeNode*, QRgb> mFolderColors;
     QImage mImage;
     const SizeNode* mSelected = nullptr;
     bool mDirty = true;
