@@ -166,8 +166,9 @@ C:/Qt/Tools/CMake_64/bin/ctest.exe --preset msvc-debug
 
 アプリは **MIT**。Qt は LGPLv3 で使うので、**GPL 専用の Qt モジュール（Qt Charts 等）を入れない**。
 MEGA SDK は BSD-2-Clause。`meganz/MEGAsync` は Code Review Licence なので**コードを写さない**
-（SDK の使い方の参考にとどめる）。依存を足したら第三者ライセンス表記の更新が必要（配布を始めるときに
-MegaExplorer の `scripts/gen_third_party_notices.py` を移植する）。
+（SDK の使い方の参考にとどめる）。Qt・SDK・vcpkg の依存や features を変えたら
+`python scripts/gen_third_party_notices.py` で `THIRD-PARTY-NOTICES.txt` を再生成してコミットする
+（`--check` で古いかどうかだけ確かめられる。入力は `build/` の vcpkg なので一度ビルドしてから）。
 
 ## コードコメント
 

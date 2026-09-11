@@ -351,8 +351,12 @@ MegaExplorer の構成を踏襲し、OS ごとのプリセットを最初から�
 - Qt は LGPLv3 で使う前提。**Qt Charts など GPL 専用モジュールは使わない**（treemap は自前描画）。
 - MEGA SDK は BSD-2-Clause。
 - `meganz/MEGAsync` のソースは Code Review Licence なので**コードを写さない**（SDK の使い方の参考のみ）。
-- 配布物には `LICENSE` と第三者ライセンス表記を同梱する（MegaExplorer の
-  `scripts/gen_third_party_notices.py` を流用できる）。
+- 配布物には `LICENSE` と `THIRD-PARTY-NOTICES.txt` を同梱する。後者は
+  `scripts/gen_third_party_notices.py`（MegaExplorer から移植）が生成し、リポジトリにコミットしておく。
+  内容は Windows ビルド（`x64-windows-mega`）のもの。Qt だけが LGPLv3 で DLL として同梱され、
+  それ以外（SDK、SDK 同梱の 5 つ、vcpkg の 8 ポート）はすべて寛容ライセンスで静的リンク。
+  vcpkg に GPL/LGPL のポートが入るとスクリプトが止まる（前文の主張が崩れるため）。
+  アプリ内のライセンス表示ダイアログは持たない（MegaExplorer の `manifest.json` 等は移植していない）。
 
 ## 8. 決定事項と未決事項
 
