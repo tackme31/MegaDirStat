@@ -33,7 +33,7 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
   モックで `drive` を使って LLM 側でスクショ確認済み。モデルは `tst_sizetreemodel`（`QAbstractItemModelTester`）。
 - **配布**（2026-09-12）: `THIRD-PARTY-NOTICES.txt` とその生成スクリプト、CMake の install/CPack 規則、
   `scripts/package.ps1`（zip は約 31 MB、展開した zip からの起動まで確認済み）、`/release` スキル。
-  まだ 1 本もリリースしていない（タグなし）。
+  初回リリース `v0.1.0`（2026-09-12、win64 zip のみ）を出した。
 - **アプリアイコン**（2026-09-12）: `resources/appicon.svg` が原本。変えたら `python scripts/gen_app_icon.py`
   （ImageMagick の `magick` が要る）で `.ico` と PNG を作り直してコミットする。exe へは `appicon.rc`、
   ウィンドウへは `main.cpp` の `setWindowIcon`。
