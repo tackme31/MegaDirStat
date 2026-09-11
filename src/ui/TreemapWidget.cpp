@@ -29,16 +29,11 @@ constexpr std::array<QRgb, 12> kPalette = {
     qRgb(0xEA, 0xB3, 0x08), // yellow
 };
 constexpr QRgb kOtherFiles = qRgb(0x94, 0xA3, 0xB8);
-constexpr QRgb kCollapsedFolder = qRgb(0x64, 0x74, 0x8B);
+// Folders too small to subdivide, and merged groups of small items.
+constexpr QRgb kGrouped = qRgb(0x64, 0x74, 0x8B);
 
-constexpr double kPaddingPx = 2.0; // logical px between a folder's frame and its content
-
-QColor blend(const QColor& a, const QColor& b, double t)
-{
-    return QColor::fromRgbF(static_cast<float>(a.redF() + (b.redF() - a.redF()) * t),
-                            static_cast<float>(a.greenF() + (b.greenF() - a.greenF()) * t),
-                            static_cast<float>(a.blueF() + (b.blueF() - a.blueF()) * t));
-}
+// Logical px: anything thinner, or smaller than this squared, is grouped.
+constexpr double kMinCellPx = 16.0;
 
 // Rounds both edges independently, so neighbours that share a float edge also
 // share the pixel edge and nothing overlaps or leaves a hole.
@@ -78,20 +73,23 @@ void TreemapWidget::setSelectedNode(const SizeNode* node)
     update();
 }
 
-const SizeNode* TreemapWidget::nodeAt(const QPoint& pos) const
+const TreemapCell* TreemapWidget::cellAt(const QPoint& pos) const
 {
     const QPointF p = QPointF(pos) * devicePixelRatioF();
-    // Pre-order, so the last hit is the deepest; a hit in a folder's padding
-    // then resolves to the folder itself.
-    const SizeNode* hit = nullptr;
     for (const TreemapCell& cell : mCells)
     {
-        if (cell.depth > 0 && cell.rect.contains(p))
+        if (cell.leaf && cell.rect.contains(p))
         {
-            hit = cell.node;
+            return &cell;
         }
     }
-    return hit;
+    return nullptr;
+}
+
+const SizeNode* TreemapWidget::nodeAt(const QPoint& pos) const
+{
+    const TreemapCell* cell = cellAt(pos);
+    return cell ? cell->node : nullptr;
 }
 
 bool TreemapWidget::event(QEvent* event)
@@ -99,12 +97,17 @@ bool TreemapWidget::event(QEvent* event)
     if (event->type() == QEvent::ToolTip)
     {
         const auto* help = static_cast<QHelpEvent*>(event);
-        if (const SizeNode* node = nodeAt(help->pos()))
+        if (const TreemapCell* cell = cellAt(help->pos()))
         {
-            QToolTip::showText(help->globalPos(),
-                               QStringLiteral("%1\n%2")
-                                   .arg(node->path(), QLocale().formattedDataSize(node->size)),
-                               this);
+            const QLocale locale;
+            const QString text =
+                cell->isAggregate()
+                    ? tr("%n small item(s) in %1", nullptr, cell->aggregatedCount)
+                              .arg(cell->node->path()) +
+                          QLatin1Char('\n') + locale.formattedDataSize(cell->aggregatedSize)
+                    : cell->node->path() + QLatin1Char('\n') +
+                          locale.formattedDataSize(cell->node->size);
+            QToolTip::showText(help->globalPos(), text, this);
         }
         else
         {
@@ -196,25 +199,28 @@ void TreemapWidget::rebuild()
     }
 
     TreemapOptions options;
-    options.padding = kPaddingPx * dpr;
+    options.minSide = kMinCellPx * dpr;
+    options.minArea = options.minSide * options.minSide;
     mCells = layoutTreemap(*mSnapshot->root, QRectF(QPointF(0, 0), QSizeF(pixels)), options);
     mCellIndex.reserve(static_cast<qsizetype>(mCells.size()));
     for (std::size_t i = 0; i < mCells.size(); ++i)
     {
-        mCellIndex.insert(mCells[i].node, static_cast<qsizetype>(i));
+        // An aggregate's node is its parent folder, which has a cell of its own.
+        if (!mCells[i].isAggregate())
+        {
+            mCellIndex.insert(mCells[i].node, static_cast<qsizetype>(i));
+        }
     }
 
-    const QColor background = palette().color(QPalette::Window);
-    const QColor folderFill = blend(background, palette().color(QPalette::WindowText), 0.10);
     const int gap = std::max(1, static_cast<int>(std::lround(dpr)));
 
     mImage = QImage(pixels, QImage::Format_RGB32);
-    mImage.fill(background);
+    mImage.fill(palette().color(QPalette::Window));
     QPainter painter(&mImage);
     painter.setPen(Qt::NoPen);
     for (const TreemapCell& cell : mCells)
     {
-        if (cell.depth == 0)
+        if (!cell.leaf)
         {
             continue;
         }
@@ -233,7 +239,7 @@ void TreemapWidget::rebuild()
         {
             continue;
         }
-        painter.fillRect(r, cell.leaf ? QColor(baseColor(*cell.node)) : folderFill);
+        painter.fillRect(r, QColor(cell.isAggregate() ? kGrouped : baseColor(*cell.node)));
     }
     painter.end();
     mImage.setDevicePixelRatio(dpr);
@@ -289,7 +295,7 @@ QRgb TreemapWidget::baseColor(const SizeNode& node) const
 {
     if (node.isFolder())
     {
-        return kCollapsedFolder;
+        return kGrouped;
     }
     return mExtensionColors.value(node.extension(), kOtherFiles);
 }

@@ -9,9 +9,10 @@
 
 #include <vector>
 
-// Flat treemap of a whole snapshot: one colour per file type, folders shown as
-// padded frames. The rendered image is cached and only rebuilt on resize, a
-// palette change or a new snapshot; selection is drawn on top of it.
+// Flat treemap of a whole snapshot: one colour per file type, a uniform gap
+// between cells, and anything below kMinCellPx grouped into one grey cell. The
+// rendered image is cached and only rebuilt on resize, a palette change or a
+// new snapshot; selection is drawn on top of it.
 class TreemapWidget : public QWidget
 {
     Q_OBJECT
@@ -22,7 +23,8 @@ public:
     void setSnapshot(SnapshotPtr snapshot);
     void setSelectedNode(const SizeNode* node);
 
-    // The painted cell under pos (widget coordinates), or nullptr.
+    // The painted cell under pos (widget coordinates), or nullptr. For a merged
+    // group of small items that is the folder holding them.
     const SizeNode* nodeAt(const QPoint& pos) const;
 
 signals:
@@ -36,6 +38,7 @@ protected:
     void mousePressEvent(QMouseEvent* event) override;
 
 private:
+    const TreemapCell* cellAt(const QPoint& pos) const;
     void rebuild();
     void assignExtensionColors();
     QRgb baseColor(const SizeNode& node) const;

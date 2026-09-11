@@ -169,38 +169,97 @@ private slots:
         }));
     }
 
-    void paddingInsetsFolderContent()
+    void smallChildrenAreMergedIntoOneCell()
     {
         SizeNode root;
         root.kind = NodeKind::Folder;
-        SizeNode* folder = root.addFolder(QStringLiteral("f"));
-        SizeNode* file = folder->addFile(QStringLiteral("a"), 1);
+        SizeNode* big = root.addFile(QStringLiteral("big"), 9000);
+        for (int i = 0; i < 10; ++i)
+        {
+            root.addFile(QStringLiteral("s%1").arg(i), 100);
+        }
         finalizeTree(root);
 
+        // 100x100 bounds: each small file would get 100 px^2, below 256.
         TreemapOptions options;
-        options.padding = 3;
-        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 100, 50), options);
+        options.minArea = 256;
+        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 100, 100), options);
         QCOMPARE(cells.size(), std::size_t(3));
-        // The invisible root is not framed, its first level is.
-        QCOMPARE(cells[1].node, folder);
-        QCOMPARE(cells[1].rect, QRectF(0, 0, 100, 50));
-        QCOMPARE(cells[2].node, file);
-        QCOMPARE(cells[2].rect, QRectF(3, 3, 94, 44));
+        QCOMPARE(cells[1].node, big);
+        QVERIFY(!cells[1].isAggregate());
+
+        const TreemapCell& merged = cells[2];
+        QVERIFY(merged.isAggregate());
+        QVERIFY(merged.leaf);
+        QCOMPARE(merged.node, &root);
+        QCOMPARE(merged.aggregatedCount, 10);
+        QCOMPARE(merged.aggregatedSize, 1000);
+        QVERIFY(std::abs(area(merged.rect) - 1000.0) < 1e-6);
+        QVERIFY(std::abs(area(cells[1].rect) + area(merged.rect) - 10000.0) < 1e-6);
     }
 
-    void paddingSkippedWhenFolderIsTooSmall()
+    void thinChildrenAreMergedEvenAboveMinArea()
     {
         SizeNode root;
         root.kind = NodeKind::Folder;
-        SizeNode* folder = root.addFolder(QStringLiteral("f"));
-        folder->addFile(QStringLiteral("a"), 1);
+        root.addFile(QStringLiteral("big"), 9400);
+        root.addFile(QStringLiteral("a"), 300);
+        root.addFile(QStringLiteral("b"), 300);
+        finalizeTree(root);
+
+        // a and b get 300 px^2 each (above 256) but only as 6x50 slivers.
+        TreemapOptions options;
+        options.minSide = 16;
+        options.minArea = 256;
+        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 100, 100), options);
+        QCOMPARE(cells.size(), std::size_t(3));
+        QVERIFY(cells[2].isAggregate());
+        QCOMPARE(cells[2].aggregatedCount, 2);
+        QCOMPARE(cells[2].aggregatedSize, 600);
+    }
+
+    void singleSmallChildIsNotMerged()
+    {
+        SizeNode root;
+        root.kind = NodeKind::Folder;
+        root.addFile(QStringLiteral("big"), 9900);
+        SizeNode* small = root.addFile(QStringLiteral("small"), 100);
         finalizeTree(root);
 
         TreemapOptions options;
-        options.padding = 3;
-        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 10, 10), options);
+        options.minArea = 256;
+        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 100, 100), options);
         QCOMPARE(cells.size(), std::size_t(3));
-        QCOMPARE(cells[2].rect, QRectF(0, 0, 10, 10));
+        QCOMPARE(cells[2].node, small);
+        QVERIFY(!cells[2].isAggregate());
+    }
+
+    void folderOfOnlySmallChildrenIsOneCell()
+    {
+        SizeNode root;
+        root.kind = NodeKind::Folder;
+        root.addFile(QStringLiteral("big"), 1'000'000);
+        SizeNode* folder = root.addFolder(QStringLiteral("f"));
+        for (int i = 0; i < 5; ++i)
+        {
+            folder->addFile(QStringLiteral("s%1").arg(i), 10'000);
+        }
+        finalizeTree(root);
+
+        // The folder gets ~4760 px^2 and is wide enough to subdivide, but every
+        // child (~950 px^2) is below minArea.
+        TreemapOptions options;
+        options.minArea = 1000;
+        const std::vector<TreemapCell> cells = layoutTreemap(root, QRectF(0, 0, 1000, 100), options);
+        const auto it = std::find_if(cells.begin(), cells.end(), [&](const TreemapCell& c) {
+            return c.node == folder;
+        });
+        QVERIFY(it != cells.end());
+        QVERIFY(it->leaf);
+        QVERIFY(!it->isAggregate());
+        QVERIFY(std::none_of(cells.begin(), cells.end(), [&](const TreemapCell& c) {
+            return c.node->parent == folder;
+        }));
     }
 };
 
