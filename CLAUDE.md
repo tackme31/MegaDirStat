@@ -20,32 +20,29 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 ### できていること
 
 - コア（`SizeNode` スナップショット、Rows 方式 treemap レイアウト＋16px 未満のまとめ、`IAccountSource`）、
-  モック（JSON フィクスチャ／決定的な乱数生成、遅延・失敗の再現）、UI（上下分割、既定で折りたたみのツリー、
-  フラットな treemap、選択の双方向同期、ツールチップ）。モックデータで起動できる。
+  モック（JSON フィクスチャ／決定的な乱数生成、遅延・失敗・ログインの再現）、UI（上下分割、既定で折りたたみの
+  ツリー、フラットな treemap、選択の双方向同期、ツールチップ）。モックデータで起動できる。
 - `scripts/verify.sh`（ビルド＋警告ゼロ＋ctest）、`scripts/run.ps1`、`ui-style` スキル（スクショ）。
 - treemap の見た目はユーザーと何度か調整して「かなりいい感じ」と言われた状態。
+- **MEGA 接続**（2026-09-12）: SDK をビルドに組み込み（features は `use-openssl` のみ、DLL なし）、
+  `MegaAccountSource`（ログイン・2FA・fetchNodes の段階表示・走査・使用量・catchup での再読込）、
+  ウィンドウ内のログイン画面 `LoginView`、`RunCacheDir`（SDK キャッシュの後始末、単体テスト付き）。
+  詳細は DESIGN.md §4〜§6。モックでログイン画面を出すには `--mock-login` / `--mock-2fa`。
 
-### 次にやること（この順）
+### 次にやること
 
-1. **MEGA SDK をビルドに組み込む。** `CMakePresets.json` の `msvc-debug` に vcpkg の変数を足し、
-   `CMakeLists.txt` で `add_subdirectory(third_party/sdk)`。手本は `../MegaExplorer/CMakePresets.json` と
-   `../MegaExplorer/CMakeLists.txt`、罠は `../MegaExplorer/docs/BUILD.md`。manifest features は最小限を
-   狙う（`use-ffmpeg` / `use-pdfium` / `use-freeimage` / `use-libuv` を外せるか試す。外せれば BUILD.md の
-   swscale 回避策も不要）。初回 configure は vcpkg のビルドで長い（バイナリキャッシュが効けば短い）。
-   新ターゲット `MegaDirStatMega`（`src/mega/`）だけが SDK をリンクする。
-2. **`MegaAccountSource`**（`src/mega/`）: ログイン → `fetchNodes` → ノードを走査して `SizeNode` を組み立て
-   （ワーカースレッドで）→ `loaded`。フォルダサイズは自前集計（`finalizeTree`）でよい。対象ルートは当面
-   Cloud Drive と Rubbish Bin（DESIGN.md §8 Q3）。MegaExplorer の `src/mega/MegaSdkClient.cpp` と
-   `MegaSdkListeners.h` が SDK の使い方の手本（同じ作者の MIT、流用可）。
-3. **ログインダイアログ**（メール＋パスワード、2FA の PIN 入力も要る）。`main.cpp` で `--mock` 系が無いときに
-   `MegaAccountSource` を選び、`MainWindow::start()` で `requiresLogin()` ならダイアログを出す。
-4. **SDK キャッシュの後始末**（DESIGN.md §5: `AppLocalDataLocation/sdk-cache/<実行ID>/` と `QLockFile`、
-   起動時の残骸削除、終了時の logout → 削除）。単体テストを付けられるよう、ディレクトリ操作は SDK と
-   切り離したクラスにする。
-5. 実アカウントでの確認はユーザーに頼む（LLM はログインしない）。
+1. **ユーザーによる実アカウントでの確認待ち**（LLM はログインしない）。見てもらう点: 通常ログイン、
+   2FA（正しいコード / 誤ったコード / Back）、読み込みの段階表示、Reload、終了後に
+   `%LOCALAPPDATA%\MegaDirStat\sdk-cache\` が空になること。問題が出たらその修正から。
+2. 2FA ページとログイン失敗時の表示は LLM 側でスクショ未確認（入力の注入 `drive` が要るため）。
+3. 以降は DESIGN.md §8 の未決事項（Q3 対象ルート、Q4 バージョン）や、ツリーの列ソートなど。
 
 ### 既知の課題・保留
 
+- 読み込み中・ログイン中のキャンセル手段がない（MegaExplorer と同じ）。ログアウトボタンもない。
+- 走査の進捗の分母 `getNumNodes()` はバージョン等も数えるので、バーは 100% の手前で終わる。
+- SDK のログはどこにも出していない（MegaExplorer の `MegaSdkLogger` 相当は未移植）。実アカウントで
+  原因不明の失敗が出たら、メールアドレス等を出さない形で足す。
 - **Serena に C++ 言語サーバーが無い**（下の「ツール」節）。直すなら `compile_commands.json` を作る手段
   （例: Ninja ジェネレータで別ディレクトリに configure するだけのプリセット）と `.serena/project.yml` の
   `language_servers` 設定が要る。未着手。
@@ -120,8 +117,11 @@ C:/Qt/Tools/CMake_64/bin/ctest.exe --preset msvc-debug
 
 - バイナリ: `build/msvc-debug/Debug/MegaDirStat.exe`（Release は `--build --preset msvc-release` で
   `build/msvc-debug/Release/`）。単体で起動するには Qt の `bin` を `PATH` に足す（`run.ps1` がやる）。
-- ターゲット: `MegaDirStatCore`（`src/core`）、`MegaDirStatMock`（`src/mock`）、`MegaDirStat`
-  （`src/ui` + `main.cpp`）、テスト `tst_*`（`tests/`、Qt Test、Core と Mock のみリンク）。
+- ターゲット: `MegaDirStatCore`（`src/core`）、`MegaDirStatMega`（`src/mega`、SDK をリンクする唯一の
+  ターゲット）、`MegaDirStatMock`（`src/mock`）、`MegaDirStat`（`src/ui` + `main.cpp`）、テスト `tst_*`
+  （`tests/`、Qt Test、Core と Mock のみリンク。実行ファイルは `build/msvc-debug/Debug/` に出る）。
+- `CMAKE_TOOLCHAIN_FILE`（vcpkg）は初回 configure でしか効かない。ビルドディレクトリを vcpkg なしで
+  作ってしまったら `build/msvc-debug/CMakeCache.txt` と `CMakeFiles/` を消して configure し直す。
 - ソースを追加・削除したら `CMakeLists.txt` に書く（glob は使っていない）。VS ジェネレータは
   `CMakeLists.txt` の変更を検知して次のビルドで自動的に再 configure する。
 - 警告: 自前ターゲットは `MegaDirStatWarnings`（MSVC `/W4 /external:W0 /permissive- /utf-8`、
@@ -139,9 +139,9 @@ C:/Qt/Tools/CMake_64/bin/ctest.exe --preset msvc-debug
   baseline 解決に履歴が要る）。どちらも MegaExplorer と同じコミットで、vcpkg のバイナリキャッシュ
   （`%LOCALAPPDATA%\vcpkg\archives`）を共有している。上げるときは両方の整合を確認する。
   新しくクローンしたら `git submodule update --init --recursive` → `third_party/vcpkg/bootstrap-vcpkg.bat`。
-- vcpkg の manifest features は最小限にする方針（MegaExplorer の `use-ffmpeg` / `use-pdfium` /
-  `use-freeimage` / `use-libuv` は不要な見込み）。SDK の組み込み方と既知の罠は
-  `../MegaExplorer/docs/BUILD.md` と `../MegaExplorer/docs/investigations/STUDY_CROSS_PLATFORM_BUILD.md`。
+- vcpkg の manifest features は `use-openssl` だけ（FFmpeg / PDFium / FreeImage / libuv は OFF、DESIGN.md §6）。
+  SDK の組み込み方と既知の罠は `../MegaExplorer/docs/BUILD.md` と
+  `../MegaExplorer/docs/investigations/STUDY_CROSS_PLATFORM_BUILD.md`。
 - **性能は Release ビルドで判断する。** MSVC の Debug は `_ITERATOR_DEBUG_LEVEL=2` 等で桁違いに遅い。
 
 ## 検証

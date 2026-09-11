@@ -1,10 +1,14 @@
+#include "core/RunCacheDir.h"
+#include "mega/MegaAccountSource.h"
 #include "mock/MockAccountSource.h"
 #include "ui/MainWindow.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QDir>
 #include <QMessageBox>
 #include <QRegularExpression>
+#include <QStandardPaths>
 #include <QStyleHints>
 
 #include <memory>
@@ -55,35 +59,64 @@ int main(int argc, char* argv[])
                                          QStringLiteral("ms"));
     const QCommandLineOption failOption(QStringLiteral("mock-fail"),
                                         QStringLiteral("Make the mock load fail."));
+    const QCommandLineOption loginOption(
+        QStringLiteral("mock-login"),
+        QStringLiteral("Show the sign-in page first (any credentials; password \"wrong\" fails)."));
+    const QCommandLineOption twoFactorOption(
+        QStringLiteral("mock-2fa"),
+        QStringLiteral("Like --mock-login, then ask for a two-factor code (123456)."));
     const QCommandLineOption sizeOption(QStringLiteral("window-size"),
                                         QStringLiteral("Initial window size, e.g. 1200x800."),
                                         QStringLiteral("WxH"));
-    parser.addOptions(
-        {mockOption, generateOption, seedOption, delayOption, failOption, sizeOption});
+    parser.addOptions({mockOption,
+                       generateOption,
+                       seedOption,
+                       delayOption,
+                       failOption,
+                       loginOption,
+                       twoFactorOption,
+                       sizeOption});
     parser.process(app);
 
     const bool mock = parser.isSet(mockOption) || parser.isSet(generateOption) ||
-                      parser.isSet(delayOption) || parser.isSet(failOption);
-    if (!mock)
-    {
-        QMessageBox::information(nullptr,
-                                 QStringLiteral("MegaDirStat"),
-                                 QStringLiteral("Signing in to MEGA is not implemented yet.\n"
-                                                "Run with --mock <file> or --mock-generate <count>."));
-        return 1;
-    }
+                      parser.isSet(delayOption) || parser.isSet(failOption) ||
+                      parser.isSet(loginOption) || parser.isSet(twoFactorOption);
 
-    MockOptions options;
-    options.fixturePath = parser.value(mockOption);
-    options.generateCount = parser.value(generateOption).toLongLong();
-    if (options.fixturePath.isEmpty() && options.generateCount <= 0)
+    std::unique_ptr<IAccountSource> source;
+    if (mock)
     {
-        options.generateCount = 10000;
+        MockOptions options;
+        options.fixturePath = parser.value(mockOption);
+        options.generateCount = parser.value(generateOption).toLongLong();
+        if (options.fixturePath.isEmpty() && options.generateCount <= 0)
+        {
+            options.generateCount = 10000;
+        }
+        options.seed = parser.value(seedOption).toULongLong();
+        options.delayMs = parser.value(delayOption).toInt();
+        options.fail = parser.isSet(failOption);
+        options.requireLogin = parser.isSet(loginOption);
+        options.twoFactor = parser.isSet(twoFactorOption);
+        source = std::make_unique<MockAccountSource>(options);
     }
-    options.seed = parser.value(seedOption).toULongLong();
-    options.delayMs = parser.value(delayOption).toInt();
-    options.fail = parser.isSet(failOption);
-    auto source = std::make_unique<MockAccountSource>(options);
+    else
+    {
+        // AppLocalDataLocation: on Windows AppDataLocation is the roaming profile.
+        const QString cacheBase = QDir(QStandardPaths::writableLocation(
+                                           QStandardPaths::AppLocalDataLocation))
+                                      .filePath(QStringLiteral("sdk-cache"));
+        QString error;
+        auto cacheDir = RunCacheDir::create(cacheBase, &error);
+        if (!cacheDir)
+        {
+            QMessageBox::critical(nullptr,
+                                  QStringLiteral("MegaDirStat"),
+                                  QObject::tr("Could not create the cache directory:\n%1").arg(error));
+            return 1;
+        }
+        source = std::make_unique<MegaAccountSource>(
+            std::move(cacheDir), QStringLiteral("MegaDirStat/" MEGADIRSTAT_VERSION));
+    }
 
     MainWindow window(*source);
     const QRegularExpressionMatch size =
@@ -94,5 +127,8 @@ int main(int argc, char* argv[])
     }
     window.show();
     window.start();
-    return app.exec();
+    const int status = app.exec();
+    // After the window has gone, so a slow server-side logout is not a frozen window.
+    source->logout();
+    return status;
 }

@@ -1,7 +1,8 @@
 # MegaDirStat 設計メモ
 
-> **状態: 雛形まで実装済み（2026-09-12）。** コア・モック・UI（ツリー＋treemap）が動き、モックデータで
-> 起動できる。MEGA SDK の組み込み（§6 の vcpkg 設定と `MegaAccountSource`）は未着手。
+> **状態: MEGA 接続まで実装済み（2026-09-12）。** コア・モック・UI（ツリー＋treemap）に加え、MEGA SDK の
+> 組み込み、`MegaAccountSource`（ログイン・2FA・fetchNodes・走査）、ログイン画面、SDK キャッシュの後始末が
+> 入った。実アカウントでの動作は未確認（ユーザーが確認する）。
 
 MEGA クラウドストレージ版の WinDirStat。アカウント内のフォルダ／ファイルが容量をどう占めているかを、
 ツリーと treemap で可視化する。閲覧専用で、ファイル操作（削除・移動・ダウンロード等）は当面持たない。
@@ -114,23 +115,64 @@ struct SizeNode
 ## 4. データ取得層の抽象化とモック（R6）
 
 ```cpp
-// src/core/IAccountSource.h
+// src/core/IAccountSource.h（抜粋）
 class IAccountSource : public QObject
 {
     Q_OBJECT
 public:
-    virtual bool requiresLogin() const = 0;
-    virtual void login(const QString& email, const QString& password) = 0;
+    enum class LoginResult { Ok, NeedsTwoFactor, Failed };
+
+    virtual bool requiresLogin() const = 0;   // 未ログイン、または初回読み込みの失敗でサインアウトした後
+    virtual void login(const QString& email, const QString& password,
+                       const QString& twoFactorCode) = 0;   // 初回はコード空。NeedsTwoFactor なら同じ資格情報＋コードで再度
     virtual void load() = 0;          // → progress(...) を何度か、最後に loaded(...) か failed(...)
-    virtual void logout() = 0;
+    virtual void logout() = 0;        // 終了前に 1 回（main.cpp）。MEGA は最大 5 秒ブロックする
 
 signals:
-    void loginFinished(bool ok, const QString& error);
-    void progress(qint64 done, qint64 total);
-    void loaded(std::shared_ptr<const SizeNode> root, const AccountUsage& usage);
+    void loginFinished(IAccountSource::LoginResult result, const QString& error);
+    void progress(const QString& stage, const QString& detail, qint64 done, qint64 total);  // total -1 = 不明
+    void loaded(SnapshotPtr snapshot);
     void failed(const QString& error);
 };
 ```
+
+- ソースは資格情報を保持しない。2FA の再試行で使うメール・パスワードはログイン画面の入力欄にあるものを
+  もう一度渡す（ログイン成功でパスワード欄は消す）。
+- エラー文言（`error`）と進捗の文言（`stage` / `detail`）はソースが `tr()` で作る。SDK のエラーコードを
+  知っているのはソースだけなので。
+
+### MEGA の読み込みの流れ（`MegaAccountSource`）
+
+MegaExplorer の `AuthController` / `LoginView.qml` と同じ段階表示にしている。
+
+| 段階 | 表示 | 進捗 |
+|---|---|---|
+| ログイン（`login` / `multiFactorAuthLogin`） | Signing you in… | ビジー |
+| `fetchNodes` 送信〜応答長が分かるまで | Requesting your file list… | ビジー |
+| 応答のダウンロード | Downloading your file list…（`12 MB of 40 MB`） | バイト数 |
+| 更新が 8 秒止まる、または受信完了 | Decrypting your file list… | ビジー（SDK は復号中の進捗を出さない） |
+| `SizeNode` の組み立て（ワーカースレッド） | Measuring folders…（`N items`） | 走査済みノード数 / `getNumNodes()` |
+
+- 走査は Cloud Drive と Rubbish Bin の `getChildren` 再帰（Q3）。バージョンは含まない（Q4、`getChildren` は
+  現行版だけを返す）。`getNumNodes()` はバージョン・Vault・共有も数えるので、バーは 100% の手前で終わる。
+- 使用量（`AccountUsage`）は走査と並行して `getAccountDetails` で取る。失敗しても読み込みは失敗にせず、
+  使用量を不明（-1）にする。
+- 再読込（2 回目以降の `load()`）は `fetchNodes` をやり直さず、`catchup` で届いている変更を反映させてから
+  メモリ上のツリーを走査し直す。
+- 初回の `fetchNodes` が失敗したらサーバー側もログアウトしてから `failed` を出す。UI はサインイン画面に
+  エラーを出して戻る。
+- 2FA の判定: `login` が `API_EMFAREQUIRED` → `NeedsTwoFactor`。コード付きの試行が `API_ENOENT` /
+  `API_EFAILED` / `API_EEXPIRED` → 「コードが違う」（megaapi.h に専用コードがないため。MegaExplorer と同じ）。
+
+### ログイン画面（`LoginView`）
+
+- **ダイアログではなくウィンドウ内のページ**（2026-09-12 決定）。サインイン → 2FA コード → 読み込み中 →
+  （モックのみ）読み込みエラー、を 1 つの `QStackedWidget` で切り替える。ページの高さは共通なので切り替えで
+  フォームが跳ねない。最初のスナップショットが届いたらツリー＋treemap に切り替え、以後の再読込は
+  ステータスバーで進捗を出す。MegaExplorer の LoginView と同じ構成で、ログインに続く数分の読み込み待ちを
+  同じ場所で見せられるため。
+- 2FA ページは 6 桁の数字入力（バリデータ付き）と Back / Confirm。自動送信はしない（MegaExplorer と同じ）。
+- ログイン中・読み込み中にキャンセルする手段はない（MegaExplorer と同じ）。ウィンドウを閉じれば終わる。
 
 実装は 2 つ:
 
@@ -143,8 +185,10 @@ signals:
   - `--mock <fixture.json>` … フィクスチャを読む（`tests/fixtures/` に数種類置く）
   - `--mock-generate <件数> [--seed N]` … 大規模ツリーを生成し、treemap の描画性能を確認する
   - `--mock-delay <ms>` / `--mock-fail` … 読み込み中表示やエラー表示の確認用
+  - `--mock-login` … サインイン画面から始める（どの資格情報でも通る。パスワード `wrong` だけ失敗）
+  - `--mock-2fa` … `--mock-login` に加えて 2FA コードを求める（`123456` だけ通る）
   - `--window-size <WxH>` … 初期ウィンドウサイズ（スクリーンショット用）
-  - 引数なし … `MegaAccountSource`（ログインダイアログを表示）。**未実装**のため現在はメッセージを出して終了する
+  - 引数なし … `MegaAccountSource`（サインイン画面を表示）
 - UI・treemap のレイアウト・ツリーモデルの単体テストはすべてモックで行い、実アカウントには触れない。
 - MegaExplorer の `megatool`（テスト用アカウントを操作する CLI）は**当面持ってこない**。あちらで必要だった
   理由（保存済みセッションが本番アカウントでないかの確認、無人ループ用のフィクスチャ作成）が、
@@ -182,6 +226,14 @@ signals:
   - **起動時**: `sdk-cache/` 配下で、自分以外の残骸（異常終了で残ったもの）を削除する。
     同時に 2 つ起動したときに相手の使用中キャッシュを消さないよう、各ディレクトリに `QLockFile` を置き、
     ロックを取れたディレクトリだけを削除対象にする。
+  - 実装は `src/core/RunCacheDir`（SDK に依存しないので単体テスト付き）。ロックはディレクトリの中ではなく
+    隣の `<id>.lock` に置く（中に置くとディレクトリを消す前にロックを外す必要がある）。ロックを先に取って
+    からディレクトリを作るので、ロックのないディレクトリは持ち主がいない残骸とみなして消す。
+    `setStaleLockTime(0)` で「古いロック」の判定をプロセスの生存確認だけにしている（既定の 30 秒だと、
+    長く開いている別インスタンスのロックを Unix では奪えてしまう）。消すのは 32 桁の 16 進名だけ。
+  - 終了処理は `main.cpp` で `app.exec()` の後（ウィンドウが消えてから）に `logout()` を呼ぶ。ログアウトは
+    オフライン時に固まらないよう 5 秒で打ち切り、`MegaApi` を破棄（SDK スレッドの join と DB のクローズ）
+    してからディレクトリを消す。
 - モック起動時は `MegaApi` を作らないので、キャッシュディレクトリも作らない。
 
 ## 6. ビルド構成
@@ -197,8 +249,18 @@ MegaExplorer の構成を踏襲し、OS ごとのプリセットを最初から�
   `CMAKE_GENERATOR_TOOLSET` を固定するため Ninja 不可）、Linux = GCC + Ninja、macOS = Clang + Ninja。
   MinGW は SDK が非対応なので使わない。
 - `CMakePresets.json` に `msvc-debug` / `linux-debug` / `macos-debug` を用意する（済）。vcpkg 関連の
-  変数（`CMAKE_TOOLCHAIN_FILE` / `VCPKG_*`）は SDK を組み込む段階で足す。Linux/macOS プリセットは
-  `QT_DIR` 環境変数で Qt の場所を渡す想定で、実機では未検証。
+  変数（`CMAKE_TOOLCHAIN_FILE` / `VCPKG_*`）は共通の `base` プリセットに、トリプレットと features は
+  OS ごとに置いている。Linux/macOS プリセットは `QT_DIR` 環境変数で Qt の場所を渡す想定で、実機では未検証。
+- **manifest features は `use-openssl` だけ**（2026-09-12、Windows で確認）。`USE_FREEIMAGE` / `USE_FFMPEG` /
+  `USE_PDFIUM` / `USE_LIBUV` / `USE_READLINE` を OFF にしている。これで vcpkg の依存は 16 パッケージ
+  （cryptopp, curl, icu, libsodium, sqlite3, openssl など）になり、すべて静的リンクで DLL が出ない。
+  FreeImage を外したので `ENABLE_ISOLATED_GFX`（gfxworker）も既定で OFF になり、MegaExplorer の BUILD.md
+  にある swscale のリンク回避策も不要。初回 configure は MegaExplorer とバイナリキャッシュを共有して 70 秒、
+  SDK 込みの初回ビルドは約 3.5 分（Debug）。
+- `SDKlib` には `SYSTEM` プロパティを付けている（CMake 3.25+）。利用側から SDK のヘッダがシステム扱いに
+  なり、自前ターゲットの `/W4` が megaapi.h の警告を拾わない。
+- SDK を `add_subdirectory` すると実行ファイルとテストの出力先が `build/msvc-debug/<Config>/` にまとまる
+  （テストも `tests/<Config>/` ではなくここに出る）。
 - ターゲット構成（案）:
   - `MegaDirStatCore` … `src/core`（スナップショット、treemap レイアウト、`IAccountSource`）。Qt Core/Gui のみ
   - `MegaDirStatMega` … `src/mega`。SDK をリンクする唯一のターゲット
@@ -234,6 +296,10 @@ MegaExplorer の構成を踏襲し、OS ごとのプリセットを最初から�
 | treemap の見た目 | cushion shading をやめ、フラット塗り＋一律 1px の隙間。16px 未満はまとめる（§2） |
 | treemap のレイアウト | squarified をやめ Rows 方式（大きいものが左上）。切り替え機能は持たない（§2） |
 | UI 文字列 | 英語＋`tr()` |
+| ログイン UI | ダイアログでなくウィンドウ内のページ（サインイン / 2FA / 読み込み中）。MegaExplorer と同じ段階表示（§4） |
+| 2FA | 認証アプリの 6 桁コード（`multiFactorAuthLogin`）。資格情報はソースに保持せず、UI の入力欄から再送 |
+| 再読込 | `fetchNodes` をやり直さず `catchup` → 再走査（§4） |
+| SDK の features | `use-openssl` のみ。サムネイル・プレビュー・ローカルサーバー系は OFF（§6） |
 
 ### 未決
 

@@ -1,17 +1,18 @@
 #include "ui/MainWindow.h"
 
+#include "ui/LoginView.h"
 #include "ui/PercentBarDelegate.h"
 #include "ui/SizeTreeModel.h"
 #include "ui/TreemapWidget.h"
 
 #include <QAction>
-#include <QCloseEvent>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLocale>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QTreeView>
@@ -42,17 +43,22 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
 
     mTreemap = new TreemapWidget;
 
-    auto* splitter = new QSplitter(Qt::Vertical);
-    splitter->addWidget(mTree);
-    splitter->addWidget(mTreemap);
-    splitter->setChildrenCollapsible(false);
-    splitter->setStretchFactor(0, 2);
-    splitter->setStretchFactor(1, 3);
-    setCentralWidget(splitter);
+    mSplitter = new QSplitter(Qt::Vertical);
+    mSplitter->addWidget(mTree);
+    mSplitter->addWidget(mTreemap);
+    mSplitter->setChildrenCollapsible(false);
+    mSplitter->setStretchFactor(0, 2);
+    mSplitter->setStretchFactor(1, 3);
 
-    auto* toolbar = addToolBar(tr("Main"));
-    toolbar->setMovable(false);
-    mReloadAction = toolbar->addAction(tr("Reload"), this, &MainWindow::reload);
+    mLoginView = new LoginView;
+    mPages = new QStackedWidget;
+    mPages->addWidget(mLoginView);
+    mPages->addWidget(mSplitter);
+    setCentralWidget(mPages);
+
+    mToolBar = addToolBar(tr("Main"));
+    mToolBar->setMovable(false);
+    mReloadAction = mToolBar->addAction(tr("Reload"), this, &MainWindow::reload);
     mReloadAction->setShortcut(QKeySequence::Refresh);
 
     mStatusLabel = new QLabel;
@@ -62,6 +68,11 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
     statusBar()->addWidget(mStatusLabel, 1);
     statusBar()->addPermanentWidget(mProgressBar);
 
+    connect(mLoginView, &LoginView::signInRequested, this, &MainWindow::onSignInRequested);
+    connect(mLoginView, &LoginView::twoFactorSubmitted, this, &MainWindow::onTwoFactorSubmitted);
+    connect(mLoginView, &LoginView::twoFactorCancelled, this, [this] { mLoginView->showSignIn(); });
+    connect(mLoginView, &LoginView::retryRequested, this, &MainWindow::reload);
+    connect(&mSource, &IAccountSource::loginFinished, this, &MainWindow::onLoginFinished);
     connect(&mSource, &IAccountSource::progress, this, &MainWindow::onProgress);
     connect(&mSource, &IAccountSource::loaded, this, &MainWindow::onLoaded);
     connect(&mSource, &IAccountSource::failed, this, &MainWindow::onFailed);
@@ -76,24 +87,88 @@ MainWindow::MainWindow(IAccountSource& source, QWidget* parent)
 
 void MainWindow::start()
 {
-    reload();
+    showLoginView();
+    if (mSource.requiresLogin())
+    {
+        mLoginView->showSignIn();
+    }
+    else
+    {
+        reload();
+    }
 }
 
-void MainWindow::closeEvent(QCloseEvent* event)
+void MainWindow::showLoginView()
 {
-    mSource.logout();
-    event->accept();
+    mPages->setCurrentWidget(mLoginView);
+    mToolBar->setVisible(false);
+    statusBar()->setVisible(false);
+}
+
+void MainWindow::showAccountView()
+{
+    mLoginView->stopProgress();
+    mPages->setCurrentWidget(mSplitter);
+    mToolBar->setVisible(true);
+    statusBar()->setVisible(true);
 }
 
 void MainWindow::reload()
 {
     mReloadAction->setEnabled(false);
+    if (!mHasSnapshot)
+    {
+        mLoginView->showProgress(tr("Loading…"), {}, 0, -1);
+    }
     mSource.load();
 }
 
-void MainWindow::onProgress(const QString& stage, qint64 done, qint64 total)
+void MainWindow::onSignInRequested(const QString& email, const QString& password)
 {
-    mStatusLabel->setText(stage);
+    mCodeAttempt = false;
+    mLoginView->showProgress(tr("Signing you in…"), {}, 0, -1);
+    mSource.login(email, password, {});
+}
+
+void MainWindow::onTwoFactorSubmitted(const QString& code)
+{
+    mCodeAttempt = true;
+    mLoginView->showProgress(tr("Signing you in…"), {}, 0, -1);
+    mSource.login(mLoginView->email(), mLoginView->password(), code);
+}
+
+void MainWindow::onLoginFinished(IAccountSource::LoginResult result, const QString& error)
+{
+    switch (result)
+    {
+        case IAccountSource::LoginResult::Ok:
+            mLoginView->clearPassword();
+            reload();
+            break;
+        case IAccountSource::LoginResult::NeedsTwoFactor:
+            mLoginView->showTwoFactor();
+            break;
+        case IAccountSource::LoginResult::Failed:
+            if (mCodeAttempt)
+            {
+                mLoginView->showTwoFactor(error);
+            }
+            else
+            {
+                mLoginView->showSignIn(error);
+            }
+            break;
+    }
+}
+
+void MainWindow::onProgress(const QString& stage, const QString& detail, qint64 done, qint64 total)
+{
+    if (!mHasSnapshot)
+    {
+        mLoginView->showProgress(stage, detail, done, total);
+        return;
+    }
+    mStatusLabel->setText(detail.isEmpty() ? stage : tr("%1  %2").arg(stage, detail));
     mProgressBar->setVisible(true);
     if (total > 0)
     {
@@ -111,6 +186,8 @@ void MainWindow::onLoaded(SnapshotPtr snapshot)
 {
     mProgressBar->setVisible(false);
     mReloadAction->setEnabled(true);
+    mHasSnapshot = true;
+    showAccountView();
 
     mModel->setSnapshot(snapshot);
     mTreemap->setSnapshot(snapshot);
@@ -132,6 +209,19 @@ void MainWindow::onFailed(const QString& error)
 {
     mProgressBar->setVisible(false);
     mReloadAction->setEnabled(true);
+    if (!mHasSnapshot)
+    {
+        // A source that needs a login has signed itself out again (IAccountSource).
+        if (mSource.requiresLogin())
+        {
+            mLoginView->showSignIn(error);
+        }
+        else
+        {
+            mLoginView->showLoadError(error);
+        }
+        return;
+    }
     mStatusLabel->setText(tr("Loading failed"));
     QMessageBox::critical(this, tr("MegaDirStat"), tr("Could not load the account:\n%1").arg(error));
 }

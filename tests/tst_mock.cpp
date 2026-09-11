@@ -170,6 +170,64 @@ private slots:
         QVERIFY(progress.count() >= 2);
     }
 
+    void sourceSimulatesLogin_data()
+    {
+        QTest::addColumn<bool>("twoFactor");
+        QTest::addColumn<QString>("password");
+        QTest::addColumn<QString>("code");
+        QTest::addColumn<IAccountSource::LoginResult>("expected");
+        using R = IAccountSource::LoginResult;
+        const QString good = QString::fromLatin1(MockAccountSource::kMockTwoFactorCode);
+        QTest::newRow("plain ok") << false << "pw" << QString() << R::Ok;
+        QTest::newRow("wrong password") << false << "wrong" << QString() << R::Failed;
+        QTest::newRow("asks for code") << true << "pw" << QString() << R::NeedsTwoFactor;
+        QTest::newRow("wrong code") << true << "pw" << "000000" << R::Failed;
+        QTest::newRow("right code") << true << "pw" << good << R::Ok;
+        QTest::newRow("wrong password beats code") << true << "wrong" << good << R::Failed;
+    }
+
+    void sourceSimulatesLogin()
+    {
+        QFETCH(bool, twoFactor);
+        QFETCH(QString, password);
+        QFETCH(QString, code);
+        QFETCH(IAccountSource::LoginResult, expected);
+
+        MockOptions options;
+        options.generateCount = 10;
+        options.requireLogin = true;
+        options.twoFactor = twoFactor;
+        MockAccountSource source(options);
+        QVERIFY(source.requiresLogin());
+
+        QSignalSpy finished(&source, &IAccountSource::loginFinished);
+        source.login(QStringLiteral("a@example.com"), password, code);
+        QVERIFY(finished.wait(5000));
+        const auto result = finished.first().at(0).value<IAccountSource::LoginResult>();
+        QCOMPARE(result, expected);
+        QCOMPARE(finished.first().at(1).toString().isEmpty(),
+                 result != IAccountSource::LoginResult::Failed);
+        QCOMPARE(source.requiresLogin(), expected != IAccountSource::LoginResult::Ok);
+    }
+
+    void failedFirstLoadSignsOut()
+    {
+        MockOptions options;
+        options.generateCount = 10;
+        options.requireLogin = true;
+        options.fail = true;
+        MockAccountSource source(options);
+        QSignalSpy finished(&source, &IAccountSource::loginFinished);
+        source.login(QStringLiteral("a@example.com"), QStringLiteral("pw"), {});
+        QVERIFY(finished.wait(5000));
+        QVERIFY(!source.requiresLogin());
+
+        QSignalSpy failed(&source, &IAccountSource::failed);
+        source.load(); // without --mock-delay the failure is emitted from inside load()
+        QTRY_COMPARE(failed.count(), 1);
+        QVERIFY(source.requiresLogin());
+    }
+
     void sourceReportsMissingFixture()
     {
         MockOptions options;
