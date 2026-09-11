@@ -2,6 +2,15 @@ cmake_minimum_required(VERSION 3.21)
 
 project(MegaDirStat VERSION 0.1.0 LANGUAGES CXX)
 
+# The Windows distribution is a zip you unpack and double-click: the exe, the
+# DLLs and the notices all at its root. windeployqt reads this through
+# QT_DEPLOY_BIN_DIR, so it flattens Qt's half too. Must precede
+# qt_standard_project_setup(), whose GNUInstallDirs only fills in defaults, and
+# must not be a cache variable, which an earlier configure's "bin" would beat.
+if(WIN32)
+    set(CMAKE_INSTALL_BINDIR ".")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -94,3 +103,40 @@ set_target_properties(MegaDirStat PROPERTIES
 # ---------------------------------------------------------------- tests
 enable_testing()
 add_subdirectory(tests)
+
+# ---------------------------------------------------------------- package
+# scripts/package.ps1 drives this; a plain `cmake --build` runs none of it.
+install(TARGETS MegaDirStat
+    BUNDLE DESTINATION .
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(FILES LICENSE THIRD-PARTY-NOTICES.txt DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# The x64-windows-mega triplet builds every vcpkg port static, so Qt is the
+# only runtime dependency to deploy.
+qt_generate_deploy_app_script(
+    TARGET MegaDirStat
+    OUTPUT_SCRIPT MEGADIRSTAT_DEPLOY_SCRIPT
+    NO_TRANSLATIONS
+    NO_COMPILER_RUNTIME
+    NO_UNSUPPORTED_PLATFORM_ERROR)
+install(SCRIPT ${MEGADIRSTAT_DEPLOY_SCRIPT})
+
+# windeployqt finds the MSVC redistributable only through %VCINSTALLDIR%, which
+# an ordinary shell does not set, and would then ship none; this module uses
+# the toolchain CMake configured with. It leaves the Debug CRT out, which may
+# not be redistributed.
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ${CMAKE_INSTALL_BINDIR})
+include(InstallRequiredSystemLibraries)
+
+# CPack captures its variables at include() time, so this stays last.
+set(CPACK_GENERATOR ZIP)
+set(CPACK_PACKAGE_NAME MegaDirStat)
+set(CPACK_PACKAGE_VENDOR "Takumi Yamada")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "WinDirStat for MEGA cloud storage")
+if(WIN32)
+    set(CPACK_PACKAGE_FILE_NAME "MegaDirStat-${PROJECT_VERSION}-win64")
+endif()
+set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}/package")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+set(CPACK_VERBATIM_VARIABLES ON)
+include(CPack)

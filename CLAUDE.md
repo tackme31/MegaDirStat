@@ -31,6 +31,9 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 - **スコープ**（2026-09-12）: 右クリック → Focus でフォルダに絞る（ツリーのルートも絞る）、ツールバーの
   Up / パンくず / メニューで戻る。分割しなかったフォルダのセルのツールチップに「Folder, N files」。
   モックで `drive` を使って LLM 側でスクショ確認済み。モデルは `tst_sizetreemodel`（`QAbstractItemModelTester`）。
+- **配布**（2026-09-12）: `THIRD-PARTY-NOTICES.txt` とその生成スクリプト、CMake の install/CPack 規則、
+  `scripts/package.ps1`（zip は約 31 MB、展開した zip からの起動まで確認済み）、`/release` スキル。
+  まだ 1 本もリリースしていない（タグなし）。
 
 ### 次にやること
 
@@ -65,6 +68,8 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 - **コミットは自由に行ってよい**（ユーザー承認済み）。1 つのまとまった変更につき 1 コミット。
   ファイルは名前を指定してステージする（`git add -A` / `git add .` は使わない）。ブランチは当面 `main` のみ。
 - **push、GitHub リポジトリの作成、Issue/PR 操作はまだ未設定。行う前にユーザーに確認する。**
+  例外はユーザーが `/release`（`.claude/skills/release/`）を打ったときで、その中の push と
+  `gh release create` は確認なしで行う。
 - 実アカウントでの動作確認はユーザーが行う。LLM 側の確認は単体テストとモック起動（下記）で行う。
 - 仕様にない機能を足さない。やりたくなったら `docs/DESIGN.md` の未決事項に書いて提案する。
 - ユーザーの好み: 見た目はモダン・フラット（グラデーションなし）。UI の変更は `ui-style` でスクショを撮って
@@ -111,6 +116,7 @@ Serena MCP が有効。`src/`、`main.cpp`、`tests/` の読み書きは Serena 
 bash scripts/verify.sh              # ビルド＋警告ゲート＋ctest。作業の終わりに必ず通す
 ./scripts/run.ps1 -AppArgs '--mock-generate','20000'   # ビルドして起動（PowerShell から直接。`powershell -File` 経由だと配列が 1 つの文字列に潰れる）
 python .claude/skills/ui-style/scripts/ui_shot.py cycle <name>        # ビルド→起動→スクショ（ui-style スキル）
+./scripts/package.ps1               # Release ビルド→zip→中身の検査→展開した zip から起動確認（リリース用）
 ```
 
 手で叩く場合:
