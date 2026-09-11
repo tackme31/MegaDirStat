@@ -1,18 +1,14 @@
 #include "core/TreemapLayout.h"
 
 #include <algorithm>
-#include <limits>
 #include <numeric>
 
 namespace
 {
 
-double worstAspect(double largestArea, double smallestArea, double rowArea, double side)
-{
-    const double side2 = side * side;
-    const double row2 = rowArea * rowArea;
-    return std::max(side2 * largestArea / row2, row2 / (side2 * smallestArea));
-}
+// A row is closed before its newest (and so narrowest) member would come out
+// narrower than this fraction of the row's thickness.
+constexpr double kMinAspect = 0.4;
 
 void layoutNode(const SizeNode& node,
                 const QRectF& rect,
@@ -95,7 +91,7 @@ void layoutNode(const SizeNode& node,
         {
             sizes.push_back(e.size);
         }
-        rects = squarify(sizes, rect);
+        rects = layoutRows(sizes, rect);
 
         if (options.minArea <= 0)
         {
@@ -133,7 +129,7 @@ void layoutNode(const SizeNode& node,
 
 } // namespace
 
-std::vector<QRectF> squarify(const std::vector<qint64>& sizes, const QRectF& bounds)
+std::vector<QRectF> layoutRows(const std::vector<qint64>& sizes, const QRectF& bounds)
 {
     const std::size_t n = sizes.size();
     std::vector<QRectF> out(n);
@@ -145,59 +141,48 @@ std::vector<QRectF> squarify(const std::vector<qint64>& sizes, const QRectF& bou
         return out;
     }
 
-    const double scale = bounds.width() * bounds.height() / total;
-    QRectF rest = bounds;
-    std::size_t start = 0;
+    // One direction per folder: a wide rectangle gets rows stacked top to
+    // bottom, a tall one columns placed left to right.
+    const bool horizontalRows = bounds.width() >= bounds.height();
+    const double lineLength = horizontalRows ? bounds.width() : bounds.height();
+    const double stackDepth = horizontalRows ? bounds.height() : bounds.width();
+    const double lineStart = horizontalRows ? bounds.left() : bounds.top();
+    const double lineEnd = horizontalRows ? bounds.right() : bounds.bottom();
+    const double stackEnd = horizontalRows ? bounds.bottom() : bounds.right();
+    double rowPos = horizontalRows ? bounds.top() : bounds.left();
 
-    while (start < n)
+    std::size_t begin = 0;
+    while (begin < n)
     {
-        // The row runs along the shorter side of what is left.
-        const bool rowAlongWidth = rest.width() < rest.height();
-        const double side = rowAlongWidth ? rest.width() : rest.height();
-
-        std::size_t end = start;
-        double rowSum = 0;
-        double worst = std::numeric_limits<double>::infinity();
+        double rowSum = static_cast<double>(sizes[begin]);
+        std::size_t end = begin + 1;
         while (end < n)
         {
             const double candidateSum = rowSum + static_cast<double>(sizes[end]);
-            const double candidate = worstAspect(static_cast<double>(sizes[start]) * scale,
-                                                 static_cast<double>(sizes[end]) * scale,
-                                                 candidateSum * scale,
-                                                 side);
-            if (end > start && candidate > worst)
+            const double thickness = stackDepth * candidateSum / total;
+            const double length = lineLength * static_cast<double>(sizes[end]) / candidateSum;
+            if (length < kMinAspect * thickness)
             {
                 break;
             }
-            worst = candidate;
             rowSum = candidateSum;
             ++end;
         }
 
-        // The last row takes whatever is left, so float drift never opens a gap.
-        const double thickness = end == n ? (rowAlongWidth ? rest.height() : rest.width())
-                                          : rowSum * scale / side;
-        const double rowStart = rowAlongWidth ? rest.left() : rest.top();
-        const double rowEnd = rowAlongWidth ? rest.right() : rest.bottom();
-        double pos = rowStart;
-        for (std::size_t i = start; i < end; ++i)
+        // The last row, and the last cell of each row, take whatever is left,
+        // so float drift never opens a gap.
+        const double thickness = end == n ? stackEnd - rowPos : stackDepth * rowSum / total;
+        double pos = lineStart;
+        for (std::size_t i = begin; i < end; ++i)
         {
             const double next =
-                i + 1 == end ? rowEnd : pos + side * static_cast<double>(sizes[i]) / rowSum;
-            out[i] = rowAlongWidth ? QRectF(pos, rest.top(), next - pos, thickness)
-                                   : QRectF(rest.left(), pos, thickness, next - pos);
+                i + 1 == end ? lineEnd : pos + lineLength * static_cast<double>(sizes[i]) / rowSum;
+            out[i] = horizontalRows ? QRectF(pos, rowPos, next - pos, thickness)
+                                    : QRectF(rowPos, pos, thickness, next - pos);
             pos = next;
         }
-
-        if (rowAlongWidth)
-        {
-            rest.setTop(rest.top() + thickness);
-        }
-        else
-        {
-            rest.setLeft(rest.left() + thickness);
-        }
-        start = end;
+        rowPos += thickness;
+        begin = end;
     }
     return out;
 }

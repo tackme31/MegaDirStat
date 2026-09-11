@@ -34,24 +34,24 @@ class TestTreemapLayout : public QObject
     Q_OBJECT
 
 private slots:
-    void squarifyTilesBoundsProportionally_data()
+    void rowsTileBoundsProportionally_data()
     {
         QTest::addColumn<std::vector<qint64>>("sizes");
         QTest::addColumn<QRectF>("bounds");
         QTest::newRow("single") << std::vector<qint64>{42} << QRectF(0, 0, 300, 200);
-        QTest::newRow("paper example") << std::vector<qint64>{6, 6, 4, 3, 2, 2, 1}
-                                       << QRectF(0, 0, 6, 4);
+        QTest::newRow("wide") << std::vector<qint64>{6, 6, 4, 3, 2, 2, 1} << QRectF(0, 0, 6, 4);
         QTest::newRow("tall") << std::vector<qint64>{50, 20, 20, 5, 3, 1, 1}
                               << QRectF(10, 20, 80, 600);
         QTest::newRow("skewed") << std::vector<qint64>{1000000, 1, 1, 1} << QRectF(0, 0, 100, 100);
+        QTest::newRow("many equal") << std::vector<qint64>(50, 7) << QRectF(0, 0, 400, 300);
     }
 
-    void squarifyTilesBoundsProportionally()
+    void rowsTileBoundsProportionally()
     {
         QFETCH(std::vector<qint64>, sizes);
         QFETCH(QRectF, bounds);
 
-        const std::vector<QRectF> rects = squarify(sizes, bounds);
+        const std::vector<QRectF> rects = layoutRows(sizes, bounds);
         QCOMPARE(rects.size(), sizes.size());
 
         double total = 0;
@@ -78,21 +78,57 @@ private slots:
         QVERIFY(std::abs(covered - area(bounds)) < 1e-6 * area(bounds));
     }
 
-    void squarifyKeepsAspectRatiosReasonable()
+    void rowsReadLargestFirstFromTopLeft()
     {
-        // The worked example from Bruls et al.: no rectangle worse than 3:1.
-        const std::vector<QRectF> rects = squarify({6, 6, 4, 3, 2, 2, 1}, QRectF(0, 0, 6, 4));
+        // Wide bounds: horizontal rows, stacked downwards, each filled left to right.
+        const std::vector<qint64> sizes{40, 20, 10, 8, 6, 5, 4, 3, 2, 1, 1};
+        const QRectF bounds(0, 0, 400, 200);
+        const std::vector<QRectF> rects = layoutRows(sizes, bounds);
+        QCOMPARE(rects.front().topLeft(), bounds.topLeft());
+        for (std::size_t i = 1; i < rects.size(); ++i)
+        {
+            const QRectF& prev = rects[i - 1];
+            const QRectF& cur = rects[i];
+            const bool sameRow = std::abs(cur.top() - prev.top()) < 1e-9;
+            if (sameRow)
+            {
+                QVERIFY(std::abs(cur.left() - prev.right()) < 1e-9);
+            }
+            else
+            {
+                QVERIFY(std::abs(cur.top() - prev.bottom()) < 1e-9);
+                QCOMPARE(cur.left(), bounds.left());
+            }
+        }
+
+        // Tall bounds: the same, turned into columns placed left to right.
+        const std::vector<QRectF> tall = layoutRows(sizes, QRectF(0, 0, 200, 400));
+        QCOMPARE(tall.front().topLeft(), QPointF(0, 0));
+        QVERIFY(tall[1].top() >= tall[0].bottom() - 1e-9 || tall[1].left() >= tall[0].right() - 1e-9);
+        QCOMPARE(tall.back().right(), 200.0);
+    }
+
+    void rowsKeepCellsFromGettingTooNarrow()
+    {
+        // Every cell after the first in its row is at least 0.4 times as wide
+        // as the row is thick; the first is wider still.
+        std::vector<qint64> sizes;
+        for (int i = 60; i > 0; --i)
+        {
+            sizes.push_back(i * i);
+        }
+        const std::vector<QRectF> rects = layoutRows(sizes, QRectF(0, 0, 800, 500));
         for (const QRectF& r : rects)
         {
-            const double ratio = std::max(r.width() / r.height(), r.height() / r.width());
-            QVERIFY2(ratio <= 3.0 + 1e-9, qPrintable(QString::number(ratio)));
+            QVERIFY2(r.width() >= 0.4 * r.height() - 1e-6,
+                     qPrintable(QStringLiteral("%1x%2").arg(r.width()).arg(r.height())));
         }
     }
 
-    void squarifyHandlesDegenerateInput()
+    void rowsHandleDegenerateInput()
     {
-        QVERIFY(squarify({}, QRectF(0, 0, 10, 10)).empty());
-        const auto rects = squarify({1, 2}, QRectF(0, 0, 0, 10));
+        QVERIFY(layoutRows({}, QRectF(0, 0, 10, 10)).empty());
+        const auto rects = layoutRows({1, 2}, QRectF(0, 0, 0, 10));
         QCOMPARE(rects.size(), std::size_t(2));
         QVERIFY(rects[0].isNull());
     }

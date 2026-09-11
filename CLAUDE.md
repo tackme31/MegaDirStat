@@ -15,11 +15,44 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 
 ## 状態
 
-**雛形が動く段階。** コア（スナップショット、treemap レイアウト、`IAccountSource`）、モック
-（JSON フィクスチャ／乱数生成）、UI（ツリー＋フラット treemap、選択同期）があり、モックデータで起動できる。
-**MEGA SDK はまだビルドに入っていない**（`add_subdirectory(third_party/sdk)` も vcpkg 設定も未）。
-次は SDK の組み込みと `MegaAccountSource`（ログイン → fetchNodes → スナップショット）、
-その後にログインダイアログと §5 のキャッシュ後始末。この節は大きな節目ごとに書き換える。
+この節は次のセッションへの引き継ぎを兼ねる。節目ごとに書き換える（最終更新 2026-09-12）。
+
+### できていること
+
+- コア（`SizeNode` スナップショット、Rows 方式 treemap レイアウト＋16px 未満のまとめ、`IAccountSource`）、
+  モック（JSON フィクスチャ／決定的な乱数生成、遅延・失敗の再現）、UI（上下分割、既定で折りたたみのツリー、
+  フラットな treemap、選択の双方向同期、ツールチップ）。モックデータで起動できる。
+- `scripts/verify.sh`（ビルド＋警告ゼロ＋ctest）、`scripts/run.ps1`、`ui-style` スキル（スクショ）。
+- treemap の見た目はユーザーと何度か調整して「かなりいい感じ」と言われた状態。
+
+### 次にやること（この順）
+
+1. **MEGA SDK をビルドに組み込む。** `CMakePresets.json` の `msvc-debug` に vcpkg の変数を足し、
+   `CMakeLists.txt` で `add_subdirectory(third_party/sdk)`。手本は `../MegaExplorer/CMakePresets.json` と
+   `../MegaExplorer/CMakeLists.txt`、罠は `../MegaExplorer/docs/BUILD.md`。manifest features は最小限を
+   狙う（`use-ffmpeg` / `use-pdfium` / `use-freeimage` / `use-libuv` を外せるか試す。外せれば BUILD.md の
+   swscale 回避策も不要）。初回 configure は vcpkg のビルドで長い（バイナリキャッシュが効けば短い）。
+   新ターゲット `MegaDirStatMega`（`src/mega/`）だけが SDK をリンクする。
+2. **`MegaAccountSource`**（`src/mega/`）: ログイン → `fetchNodes` → ノードを走査して `SizeNode` を組み立て
+   （ワーカースレッドで）→ `loaded`。フォルダサイズは自前集計（`finalizeTree`）でよい。対象ルートは当面
+   Cloud Drive と Rubbish Bin（DESIGN.md §8 Q3）。MegaExplorer の `src/mega/MegaSdkClient.cpp` と
+   `MegaSdkListeners.h` が SDK の使い方の手本（同じ作者の MIT、流用可）。
+3. **ログインダイアログ**（メール＋パスワード、2FA の PIN 入力も要る）。`main.cpp` で `--mock` 系が無いときに
+   `MegaAccountSource` を選び、`MainWindow::start()` で `requiresLogin()` ならダイアログを出す。
+4. **SDK キャッシュの後始末**（DESIGN.md §5: `AppLocalDataLocation/sdk-cache/<実行ID>/` と `QLockFile`、
+   起動時の残骸削除、終了時の logout → 削除）。単体テストを付けられるよう、ディレクトリ操作は SDK と
+   切り離したクラスにする。
+5. 実アカウントでの確認はユーザーに頼む（LLM はログインしない）。
+
+### 既知の課題・保留
+
+- **Serena に C++ 言語サーバーが無い**（下の「ツール」節）。直すなら `compile_commands.json` を作る手段
+  （例: Ninja ジェネレータで別ディレクトリに configure するだけのプリセット）と `.serena/project.yml` の
+  `language_servers` 設定が要る。未着手。
+- Rows 方式にしてから、16px 未満としてまとめた灰色セルが squarified 時より多い。ユーザーが気にしたら
+  しきい値（`src/ui/TreemapWidget.cpp` の `kMinCellPx`）か行を閉じる比率（`kMinAspect`）を調整する。
+- treemap クリック → ツリー選択の同期は LLM 側では未確認（`ui_shot.py drive` はユーザー確認が要る）。
+- ツリーの列ヘッダでのソートは未実装。Linux/macOS のビルドは未検証。
 
 ## 進め方（ほぼ LLM に任されている）
 
@@ -31,6 +64,9 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 - **push、GitHub リポジトリの作成、Issue/PR 操作はまだ未設定。行う前にユーザーに確認する。**
 - 実アカウントでの動作確認はユーザーが行う。LLM 側の確認は単体テストとモック起動（下記）で行う。
 - 仕様にない機能を足さない。やりたくなったら `docs/DESIGN.md` の未決事項に書いて提案する。
+- ユーザーの好み: 見た目はモダン・フラット（グラデーションなし）。UI の変更は `ui-style` でスクショを撮って
+  自分で確認してから、ユーザーに確認用に起動して渡す（`./scripts/run.ps1 -NoBuild -AppArgs ...`）。
+- WinDirStat は GPL。挙動の参考にはするが**コードは写さない**（本アプリは MIT）。
 
 ## ツール: コードには Serena を使う
 

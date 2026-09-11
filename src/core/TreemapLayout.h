@@ -36,9 +36,11 @@ struct TreemapOptions
     double minArea = 0.0;
 };
 
-// Squarified layout (Bruls, Huizing, van Wijk 2000). sizes must be positive and
-// sorted descending; the returned rectangles are in the same order and tile bounds.
-std::vector<QRectF> squarify(const std::vector<qint64>& sizes, const QRectF& bounds);
+// Row layout in the KDirStat/WinDirStat style: rows (columns, for a tall
+// rectangle) filled largest-first from the top left, so size reads in one
+// direction throughout. sizes must be positive and sorted descending; the
+// returned rectangles are in the same order and tile bounds.
+std::vector<QRectF> layoutRows(const std::vector<qint64>& sizes, const QRectF& bounds);
 
 // Lays out the whole subtree of root in pre-order (a folder before its
 // descendants). Zero-size nodes get no cell. The leaves tile bounds exactly.
