@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Source of the app icon. scripts/gen_app_icon.py derives appicon.ico and
+       the appicon-*.png set from it. Cell colours are the first entries of
+       kPalette in src/ui/TreemapWidget.cpp; the tile is Tailwind slate-900. -->
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="#0F172A"/>
+  <rect x="22" y="22" width="141.6" height="141.6" rx="8" fill="#3B82F6"/>
+  <rect x="171.6" y="22" width="62.4" height="80" rx="8" fill="#10B981"/>
+  <rect x="171.6" y="110" width="62.4" height="53.6" rx="8" fill="#F59E0B"/>
+  <rect x="22" y="171.6" width="80" height="62.4" rx="8" fill="#8B5CF6"/>
+  <rect x="110" y="171.6" width="53.6" height="62.4" rx="8" fill="#F43F5E"/>
+  <rect x="171.6" y="171.6" width="62.4" height="62.4" rx="8" fill="#06B6D4"/>
+  <polygon fill="#FFFFFF"
+           points="40,132 40,50 64,50 93,90.7 122,50 146,50 146,132 122,132 122,91.3 93,132 64,91.3 64,132"/>
+</svg>

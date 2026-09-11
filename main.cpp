@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDir>
+#include <QIcon>
 #include <QMessageBox>
 #include <QRegularExpression>
 #include <QStandardPaths>
@@ -38,6 +39,19 @@ int main(int argc, char* argv[])
     QApplication::setApplicationName(QStringLiteral("MegaDirStat"));
     QApplication::setApplicationVersion(QStringLiteral(MEGADIRSTAT_VERSION));
     applyColorSchemeOverride();
+
+    // Windows asks for a small and a large icon separately (title bar vs.
+    // taskbar), scaled by the monitor's DPI, so one pixmap would be resampled
+    // for most of them. resources/appicon.rc covers what Explorer and a pinned
+    // taskbar entry show before the process exists.
+    {
+        QIcon windowIcon;
+        for (int size : {16, 24, 32, 48, 64, 256})
+        {
+            windowIcon.addFile(QStringLiteral(":/resources/appicon-%1.png").arg(size));
+        }
+        QApplication::setWindowIcon(windowIcon);
+    }
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Disk usage treemap for MEGA cloud storage."));

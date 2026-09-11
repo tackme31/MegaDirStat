@@ -88,6 +88,20 @@ qt_add_executable(MegaDirStat WIN32 MACOSX_BUNDLE
     src/ui/SizeTreeModel.h src/ui/SizeTreeModel.cpp
     src/ui/TreemapWidget.h src/ui/TreemapWidget.cpp
 )
+if(WIN32)
+    target_sources(MegaDirStat PRIVATE resources/appicon.rc)
+endif()
+# setWindowIcon() in main.cpp reads these; generated from resources/appicon.svg
+# by scripts/gen_app_icon.py.
+qt_add_resources(MegaDirStat appicon
+    PREFIX /
+    FILES
+        resources/appicon-16.png
+        resources/appicon-24.png
+        resources/appicon-32.png
+        resources/appicon-48.png
+        resources/appicon-64.png
+        resources/appicon-256.png)
 target_link_libraries(MegaDirStat PRIVATE
     MegaDirStatCore
     MegaDirStatMega
