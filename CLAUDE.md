@@ -19,7 +19,7 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 
 ### できていること
 
-- コア（`SizeNode` スナップショット、Rows 方式 treemap レイアウト＋16px 未満のまとめ、`IAccountSource`）、
+- コア（`SizeNode` スナップショット、Rows 方式 treemap レイアウト＋8px 未満のまとめ、`IAccountSource`）、
   モック（JSON フィクスチャ／決定的な乱数生成、遅延・失敗・ログインの再現）、UI（上下分割、既定で折りたたみの
   ツリー、フラットな treemap、選択の双方向同期、ツールチップ）。モックデータで起動できる。
 - `scripts/verify.sh`（ビルド＋警告ゼロ＋ctest）、`scripts/run.ps1`、`ui-style` スキル（スクショ）。
@@ -46,8 +46,8 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 - **Serena に C++ 言語サーバーが無い**（下の「ツール」節）。直すなら `compile_commands.json` を作る手段
   （例: Ninja ジェネレータで別ディレクトリに configure するだけのプリセット）と `.serena/project.yml` の
   `language_servers` 設定が要る。未着手。
-- Rows 方式にしてから、16px 未満としてまとめた灰色セルが squarified 時より多い。ユーザーが気にしたら
-  しきい値（`src/ui/TreemapWidget.cpp` の `kMinCellPx`）か行を閉じる比率（`kMinAspect`）を調整する。
+- まとめたセルの多さはユーザーの指定でしきい値を 16px → 8px に下げて対処した（2026-09-12）。まだ気に
+  なるようなら行を閉じる比率（`kMinAspect`）も調整候補。しきい値は `src/ui/TreemapWidget.cpp` の `kMinCellPx`。
 - treemap クリック → ツリー選択の同期は LLM 側では未確認（`ui_shot.py drive` はユーザー確認が要る）。
 - ツリーの列ヘッダでのソートは未実装。Linux/macOS のビルドは未検証。
 

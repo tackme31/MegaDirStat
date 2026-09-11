@@ -34,7 +34,7 @@ constexpr QRgb kOtherFiles = qRgb(0x94, 0xA3, 0xB8);
 constexpr QRgb kGrouped = qRgb(0x64, 0x74, 0x8B);
 
 // Logical px: anything thinner, or smaller than this squared, is grouped.
-constexpr double kMinCellPx = 16.0;
+constexpr double kMinCellPx = 8.0;
 
 QRgb muted(QRgb c)
 {
