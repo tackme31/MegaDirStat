@@ -1,0 +1,62 @@
+{
+  "usage": { "used": 3500000000, "total": 21474836480 },
+  "roots": [
+    {
+      "name": "Cloud Drive",
+      "children": [
+        {
+          "name": "Photos",
+          "children": [
+            {
+              "name": "2024",
+              "children": [
+                { "name": "IMG_0001.jpg", "size": 4200000, "modified": "2024-01-02T10:00:00Z" },
+                { "name": "IMG_0002.jpg", "size": 3900000, "modified": "2024-01-02T10:05:00Z" },
+                { "name": "IMG_0003.heic", "size": 2100000, "modified": "2024-03-14T08:30:00Z" },
+                { "name": "VID_0004.mp4", "size": 180000000, "modified": "2024-05-01T19:00:00Z" }
+              ]
+            },
+            {
+              "name": "2025",
+              "children": [
+                { "name": "IMG_0101.jpg", "size": 5100000, "modified": "2025-02-11T12:00:00Z" },
+                { "name": "IMG_0102.cr3", "size": 29000000, "modified": "2025-02-11T12:01:00Z" }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Videos",
+          "children": [
+            { "name": "holiday.mkv", "size": 1600000000, "modified": "2023-08-20T21:00:00Z" },
+            { "name": "talk.mp4", "size": 420000000, "modified": "2025-06-30T09:00:00Z" }
+          ]
+        },
+        {
+          "name": "Documents",
+          "children": [
+            { "name": "report.pdf", "size": 850000, "modified": "2025-04-01T09:00:00Z" },
+            { "name": "budget.xlsx", "size": 96000 },
+            { "name": "notes.md", "size": 4100 },
+            { "name": "README", "size": 1200 },
+            { "name": "Empty folder", "children": [] }
+          ]
+        },
+        {
+          "name": "Backups",
+          "children": [
+            { "name": "laptop-2024.7z", "size": 1150000000, "modified": "2024-12-31T23:00:00Z" }
+          ]
+        },
+        { "name": "empty.txt", "size": 0 }
+      ]
+    },
+    {
+      "name": "Rubbish Bin",
+      "children": [
+        { "name": "old-installer.exe", "size": 65000000, "modified": "2022-10-10T10:00:00Z" },
+        { "name": "draft.docx", "size": 150000 }
+      ]
+    }
+  ]
+}

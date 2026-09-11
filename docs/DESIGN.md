@@ -1,6 +1,7 @@
 # MegaDirStat 設計メモ
 
-> **状態: 構想段階（コード未着手）。** 2026-09-11 作成、2026-09-12 に方針決定分（§8）を反映。
+> **状態: 雛形まで実装済み（2026-09-12）。** コア・モック・UI（ツリー＋treemap）が動き、モックデータで
+> 起動できる。MEGA SDK の組み込み（§6 の vcpkg 設定と `MegaAccountSource`）は未着手。
 
 MEGA クラウドストレージ版の WinDirStat。アカウント内のフォルダ／ファイルが容量をどう占めているかを、
 ツリーと treemap で可視化する。閲覧専用で、ファイル操作（削除・移動・ダウンロード等）は当面持たない。
@@ -49,18 +50,28 @@ MEGA クラウドストレージ版の WinDirStat。アカウント内のフォ�
 ### ツリー（上）
 
 - 列: 名前、サイズ、親に対する割合（バー表示。`QStyledItemDelegate` で描く）、ファイル数、更新日時。
-- 兄弟はサイズ降順で並べる（WinDirStat と同じ既定）。列ヘッダでのソート変更は可。
+- 兄弟はサイズ降順で並べる（WinDirStat と同じ既定）。列ヘッダでのソート変更は**未実装**。
 - 起動直後は**全て折りたたみ**。展開状態も保存しない。
-- `canFetchMore` / `fetchMore` で子を遅延公開し、大規模アカウントでも初期表示を軽く保つ。
+- スナップショットは全体がメモリにあり、`QTreeView` は展開された行の子しか問い合わせないので、
+  `fetchMore` による遅延公開は不要（`setUniformRowHeights(true)` で大量行でも軽い）。
 
 ### treemap（下）
 
-- レイアウトは squarified treemap（WinDirStat は SequoiaView 由来の squarified + cushion shading）。
-- 色はファイル種別（拡張子）で塗り分ける。
+- レイアウトは squarified treemap（Bruls et al. 2000）。
+- **見た目はフラット**（2026-09-12 決定）。WinDirStat の cushion shading（凸型のグラデーション）は
+  古く見えるため採らない。代わりに:
+  - 塗りは単色。色はファイル種別（拡張子）ごとで、総バイト数の多い上位 12 種に明暗どちらの
+    テーマでも読める中間色を割り当て、それ以外はグレー。
+  - セル間に 1px（物理ピクセルで `round(dpr)`）の隙間を入れ、背景色を見せる。
+  - 階層はフォルダの内側に 2 論理 px の余白を取り、フォルダ面を背景よりわずかに濃く塗って枠として見せる。
+    余白を取ると中身が潰れる小さいフォルダには取らない。
+  - 小さすぎて分割できないフォルダは 1 セルとして濃いグレーで塗る。
+  - 選択中のノードは OS のハイライト色で縁取る。
 - ツリーと双方向に選択を同期する: treemap をクリック → ツリーの該当ノードを展開・選択、
   ツリーで選択 → treemap 上で強調表示。
-- レイアウト計算（純粋な関数、単体テスト対象）とペイントを分ける。描画結果は `QImage` に
-  キャッシュし、リサイズと表示ルートの変更のときだけ作り直す。
+- レイアウト計算（`src/core/TreemapLayout`、純粋な関数、単体テスト対象）とペイントを分ける。
+  描画結果は `QImage` にキャッシュし、リサイズ・パレット変更・スナップショット差し替えのときだけ作り直す。
+- UI 文字列は英語で書き、すべて `tr()` を通す（将来の日本語化に備える）。
 
 ## 3. データモデル: 読み込み済みスナップショット
 
@@ -120,7 +131,8 @@ signals:
   - `--mock <fixture.json>` … フィクスチャを読む（`tests/fixtures/` に数種類置く）
   - `--mock-generate <件数> [--seed N]` … 大規模ツリーを生成し、treemap の描画性能を確認する
   - `--mock-delay <ms>` / `--mock-fail` … 読み込み中表示やエラー表示の確認用
-  - 引数なし … `MegaAccountSource`（ログインダイアログを表示）
+  - `--window-size <WxH>` … 初期ウィンドウサイズ（スクリーンショット用）
+  - 引数なし … `MegaAccountSource`（ログインダイアログを表示）。**未実装**のため現在はメッセージを出して終了する
 - UI・treemap のレイアウト・ツリーモデルの単体テストはすべてモックで行い、実アカウントには触れない。
 - MegaExplorer の `megatool`（テスト用アカウントを操作する CLI）は**当面持ってこない**。あちらで必要だった
   理由（保存済みセッションが本番アカウントでないかの確認、無人ループ用のフィクスチャ作成）が、
@@ -172,7 +184,9 @@ MegaExplorer の構成を踏襲し、OS ごとのプリセットを最初から�
 - ツールチェーン: **Windows = MSVC + Visual Studio ジェネレータ**（SDK が Windows で
   `CMAKE_GENERATOR_TOOLSET` を固定するため Ninja 不可）、Linux = GCC + Ninja、macOS = Clang + Ninja。
   MinGW は SDK が非対応なので使わない。
-- `CMakePresets.json` に `msvc-debug` / `linux-debug` / `macos-debug` を用意する。
+- `CMakePresets.json` に `msvc-debug` / `linux-debug` / `macos-debug` を用意する（済）。vcpkg 関連の
+  変数（`CMAKE_TOOLCHAIN_FILE` / `VCPKG_*`）は SDK を組み込む段階で足す。Linux/macOS プリセットは
+  `QT_DIR` 環境変数で Qt の場所を渡す想定で、実機では未検証。
 - ターゲット構成（案）:
   - `MegaDirStatCore` … `src/core`（スナップショット、treemap レイアウト、`IAccountSource`）。Qt Core/Gui のみ
   - `MegaDirStatMega` … `src/mega`。SDK をリンクする唯一のターゲット
@@ -205,6 +219,8 @@ MegaExplorer の構成を踏襲し、OS ごとのプリセットを最初から�
 | ライセンス | **MIT** |
 | 開発時の検証 | データ取得層を抽象化し、モックで起動できるようにする（§4）。`megatool` は持ってこない |
 | リポジトリ | `main` ブランチ。サブモジュールは `third_party/sdk`（v10.17.0、shallow）と `third_party/vcpkg`（完全履歴） |
+| treemap の見た目 | cushion shading をやめ、フラット塗り＋隙間＋フォルダ余白（§2） |
+| UI 文字列 | 英語＋`tr()` |
 
 ### 未決
 

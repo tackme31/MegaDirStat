@@ -15,8 +15,11 @@ Qt Widgets 製、Windows / macOS / Linux 対応。
 
 ## 状態
 
-**コード未着手。** リポジトリの骨組み（ライセンス、git 設定、サブモジュール、設計メモ）だけがある。
-次は CMake の雛形（OS 別プリセット、ターゲット分割）から。この節は大きな節目ごとに書き換える。
+**雛形が動く段階。** コア（スナップショット、treemap レイアウト、`IAccountSource`）、モック
+（JSON フィクスチャ／乱数生成）、UI（ツリー＋フラット treemap、選択同期）があり、モックデータで起動できる。
+**MEGA SDK はまだビルドに入っていない**（`add_subdirectory(third_party/sdk)` も vcpkg 設定も未）。
+次は SDK の組み込みと `MegaAccountSource`（ログイン → fetchNodes → スナップショット）、
+その後にログインダイアログと §5 のキャッシュ後始末。この節は大きな節目ごとに書き換える。
 
 ## 進め方（ほぼ LLM に任されている）
 
@@ -36,6 +39,11 @@ Serena MCP が有効。`src/`、`main.cpp`、`tests/` の読み書きは Serena 
 コード作業の前に `initial_instructions` を 1 回呼ぶ。Markdown・JSON・CMake などコード以外のファイルは
 組み込みの `Read`/`Edit` でよい。Serena が接続できないときは、黙ってファイル全体を読む方式に切り替えず、
 そのことをユーザーに伝える。
+
+**現状、Serena にこのプロジェクトの C++ 言語サーバーが設定されていない**（`.serena/project.yml` の
+`language_servers: []`、シンボル系ツールは "No language servers available" で失敗する）。C++ の言語
+サーバー（clangd）は `compile_commands.json` を必要とし、Visual Studio ジェネレータはそれを出さないため。
+設定されるまではコードも組み込みツールで扱ってよい。
 
 ## 守るべき設計ルール
 
@@ -58,7 +66,32 @@ Serena MCP が有効。`src/`、`main.cpp`、`tests/` の読み書きは Serena 
 
 ## ビルド
 
-（CMake の雛形ができたら、実際に動いたコマンドでこの節を書き換える。）
+普段使うのは次の 3 つ（Windows）:
+
+```
+bash scripts/verify.sh              # ビルド＋警告ゲート＋ctest。作業の終わりに必ず通す
+powershell -File scripts/run.ps1 -AppArgs '--mock-generate','20000'   # ビルドして起動
+python .claude/skills/ui-style/scripts/ui_shot.py cycle <name>        # ビルド→起動→スクショ（ui-style スキル）
+```
+
+手で叩く場合:
+
+```
+C:/Qt/Tools/CMake_64/bin/cmake.exe --preset msvc-debug
+C:/Qt/Tools/CMake_64/bin/cmake.exe --build --preset msvc-debug
+C:/Qt/Tools/CMake_64/bin/ctest.exe --preset msvc-debug
+```
+
+- バイナリ: `build/msvc-debug/Debug/MegaDirStat.exe`（Release は `--build --preset msvc-release` で
+  `build/msvc-debug/Release/`）。単体で起動するには Qt の `bin` を `PATH` に足す（`run.ps1` がやる）。
+- ターゲット: `MegaDirStatCore`（`src/core`）、`MegaDirStatMock`（`src/mock`）、`MegaDirStat`
+  （`src/ui` + `main.cpp`）、テスト `tst_*`（`tests/`、Qt Test、Core と Mock のみリンク）。
+- ソースを追加・削除したら `CMakeLists.txt` に書く（glob は使っていない）。VS ジェネレータは
+  `CMakeLists.txt` の変更を検知して次のビルドで自動的に再 configure する。
+- 警告: 自前ターゲットは `MegaDirStatWarnings`（MSVC `/W4 /external:W0 /permissive- /utf-8`、
+  GCC/Clang `-Wall -Wextra -Wpedantic`）を PRIVATE でリンクする。**`verify.sh` は自分のコードの警告が
+  1 つでもあれば失敗する。** moc 生成物の警告はフルビルドでしか出ないので、ヘッダの `Q_OBJECT` 周りを
+  触ったら `verify.sh --full` を使う。
 
 - Qt 6.11.1 は `C:/Qt/6.11.1/msvc2022_64` にある（`mingw_64` もあるが使わない）。
 - **Windows は MSVC + Visual Studio ジェネレータ必須。** Ninja は不可（SDK が Windows で
@@ -73,16 +106,16 @@ Serena MCP が有効。`src/`、`main.cpp`、`tests/` の読み書きは Serena 
 - vcpkg の manifest features は最小限にする方針（MegaExplorer の `use-ffmpeg` / `use-pdfium` /
   `use-freeimage` / `use-libuv` は不要な見込み）。SDK の組み込み方と既知の罠は
   `../MegaExplorer/docs/BUILD.md` と `../MegaExplorer/docs/investigations/STUDY_CROSS_PLATFORM_BUILD.md`。
-- 警告: 自前ターゲットのみ MSVC `/W4`、GCC/Clang `-Wall -Wextra`。**作業の終わりに自分のコードの
-  新しい警告を 0 にする。**
 - **性能は Release ビルドで判断する。** MSVC の Debug は `_ITERATOR_DEBUG_LEVEL=2` 等で桁違いに遅い。
 
 ## 検証
 
 - 単体テスト（Qt Test）は `MegaDirStatCore` と `MegaDirStatMock` だけをリンクし、SDK なしで回す。
 - 画面の確認はモック起動で行う（`--mock <fixture.json>`、`--mock-generate <件数>`。仕様は §4）。
-  **実アカウントでログインしてスクリーンショットを撮らない**（ユーザーの実データが写る。
-  `.screenshots/` は gitignore 済み）。
+  **見た目の確認・調整は `ui-style` スキル**（`.claude/skills/ui-style/`）を使う。`ui_shot.py` は
+  モック引数なしでは起動を拒否する作りなので、実アカウントが写ることはない。
+  **実アカウントでログインしてスクリーンショットを撮らない**（`.screenshots/` は gitignore 済み）。
+- `ui_shot.py drive`（マウス・キーボード操作の注入）はユーザーの操作を奪うので、使う前に必ず確認する。
 - UI の変更をブラウザやスクリーンショットで確認できなかった場合は、成功したと言わずにそう伝える。
 
 ## ライセンス
