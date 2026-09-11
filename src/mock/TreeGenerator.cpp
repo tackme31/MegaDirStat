@@ -57,6 +57,9 @@ struct Profile
     const char* filePrefix;
     std::vector<ExtSpec> exts;
     std::vector<const char*> subfolders;
+    // Share of a folder's files that take the folder's own dominant extension;
+    // the rest are drawn from exts at large.
+    double homogeneity;
 };
 
 constexpr double KB = 1024.0;
@@ -73,17 +76,20 @@ const std::vector<Profile>& profiles()
           {"heic", 0.25, 2.2 * MB, 0.4},
           {"mp4", 0.1, 80 * MB, 1.0},
           {"cr3", 0.05, 28 * MB, 0.2}},
-         {"2019", "2020", "2021", "2022", "2023", "2024", "2025", "Screenshots"}},
+         {"2019", "2020", "2021", "2022", "2023", "2024", "2025", "Screenshots"},
+         0.7},
         {"Videos",
          5,
          "video_",
          {{"mp4", 0.6, 400 * MB, 1.1}, {"mkv", 0.3, 1.5 * GB, 0.8}, {"mov", 0.1, 900 * MB, 1.0}},
-         {"Movies", "Family", "Travel", "Recordings", "Lectures"}},
+         {"Movies", "Family", "Travel", "Recordings", "Lectures"},
+         0.8},
         {"Music",
          15,
          "Track ",
          {{"mp3", 0.6, 6 * MB, 0.4}, {"flac", 0.3, 28 * MB, 0.4}, {"m4a", 0.1, 7 * MB, 0.4}},
-         {"Artist", "Album", "Live", "Soundtracks", "Podcasts"}},
+         {"Artist", "Album", "Live", "Soundtracks", "Podcasts"},
+         0.95},
         {"Documents",
          20,
          "Document ",
@@ -93,7 +99,8 @@ const std::vector<Profile>& profiles()
           {"pptx", 0.08, 3 * MB, 1.0},
           {"txt", 0.12, 6 * KB, 1.2},
           {"md", 0.1, 4 * KB, 1.0}},
-         {"Work", "Taxes", "Receipts", "Manuals", "Notes", "Scans"}},
+         {"Work", "Taxes", "Receipts", "Manuals", "Notes", "Scans"},
+         0.5},
         {"Projects",
          25,
          "file_",
@@ -105,7 +112,8 @@ const std::vector<Profile>& profiles()
           {"svg", 0.05, 8 * KB, 1.0},
           {"zip", 0.02, 40 * MB, 1.2},
           {"py", 0.18, 6 * KB, 1.0}},
-         {"src", "include", "assets", "tests", "docs", "tools", "node_modules"}},
+         {"src", "include", "assets", "tests", "docs", "tools", "node_modules"},
+         0.5},
         {"Backups",
          2,
          "backup_",
@@ -113,7 +121,8 @@ const std::vector<Profile>& profiles()
           {"7z", 0.3, 2 * GB, 1.0},
           {"iso", 0.1, 4 * GB, 0.3},
           {"bak", 0.2, 500 * MB, 1.5}},
-         {"PC", "Phone", "NAS", "Old laptop"}},
+         {"PC", "Phone", "NAS", "Old laptop"},
+         0.8},
         {"Downloads",
          3,
          "download_",
@@ -123,7 +132,8 @@ const std::vector<Profile>& profiles()
           {"dmg", 0.1, 150 * MB, 1.0},
           {"iso", 0.05, 3 * GB, 0.5},
           {"jpg", 0.15, 1 * MB, 1.0}},
-         {"Installers", "Papers"}},
+         {"Installers", "Papers"},
+         0.3},
     };
     return all;
 }
@@ -163,22 +173,34 @@ struct Area
     const Profile* profile;
     SizeNode* top;
     std::vector<SizeNode*> folders;
+    // Parallel to folders: index into profile->exts of each folder's dominant extension.
+    std::vector<std::size_t> folderExts;
     int nextFolder = 1;
     qint64 nextFile = 1;
 };
+
+std::size_t pickExt(const Profile& profile, Rng& rng)
+{
+    return pickWeighted(profile.exts, [](const ExtSpec& e) { return e.weight; }, rng);
+}
 
 void addOneFile(Area& area, Rng& rng, double newFolderChance, int maxDepth)
 {
     if (rng.uniform() < newFolderChance)
     {
-        SizeNode* under = area.folders[rng.index(area.folders.size())];
+        const std::size_t underIndex = rng.index(area.folders.size());
+        SizeNode* under = area.folders[underIndex];
         if (depthBelow(under, area.top) < maxDepth)
         {
             const auto& names = area.profile->subfolders;
             const QString name = QStringLiteral("%1 %2")
                                      .arg(QLatin1String(names[rng.index(names.size())]))
                                      .arg(area.nextFolder++);
+            const std::size_t parentExt = area.folderExts[underIndex];
             area.folders.push_back(under->addFolder(name));
+            // Half the subfolders carry on their parent's kind of content, so
+            // same-coloured regions span several levels as in real accounts.
+            area.folderExts.push_back(rng.uniform() < 0.5 ? parentExt : pickExt(*area.profile, rng));
         }
     }
 
@@ -186,11 +208,16 @@ void addOneFile(Area& area, Rng& rng, double newFolderChance, int maxDepth)
     // than a flat spread.
     const std::size_t n = area.folders.size();
     const std::size_t recent = std::min<std::size_t>(n, 8);
-    SizeNode* folder = rng.uniform() < 0.7 ? area.folders[n - 1 - rng.index(recent)]
-                                           : area.folders[rng.index(n)];
+    const std::size_t folderIndex =
+        rng.uniform() < 0.7 ? n - 1 - rng.index(recent) : rng.index(n);
+    SizeNode* folder = area.folders[folderIndex];
 
-    const auto& exts = area.profile->exts;
-    const ExtSpec& ext = exts[pickWeighted(exts, [](const ExtSpec& e) { return e.weight; }, rng)];
+    // Mixing the folder's own extension with a draw from the profile's weights
+    // leaves the account-wide mix of extensions unchanged.
+    const std::size_t extIndex = rng.uniform() < area.profile->homogeneity
+                                     ? area.folderExts[folderIndex]
+                                     : pickExt(*area.profile, rng);
+    const ExtSpec& ext = area.profile->exts[extIndex];
     const double bytes = std::clamp(
         std::exp(std::log(ext.medianBytes) + ext.sigma * rng.normal()), 0.0, 50.0 * GB);
 
@@ -235,8 +262,8 @@ std::unique_ptr<AccountSnapshot> generateSnapshot(const GeneratorOptions& option
     for (const Profile& p : profiles())
     {
         SizeNode* top = cloudDrive->addFolder(QLatin1String(p.folder));
-        areas.push_back({&p, top, {top}});
-        rubbishAreas.push_back({&p, rubbish, {rubbish}});
+        areas.push_back({&p, top, {top}, {pickExt(p, rng)}});
+        rubbishAreas.push_back({&p, rubbish, {rubbish}, {pickExt(p, rng)}});
     }
 
     for (qint64 i = 0; i < options.fileCount; ++i)
