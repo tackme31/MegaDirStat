@@ -1,3 +1,5 @@
+<img src="./resources/appicon.svg" width="100" />
+
 # MegaDirStat
 
 [WinDirStat](https://windirstat.net) for [MEGA](https://mega.io) cloud storage. See what's taking up
