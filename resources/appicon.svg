@@ -1,14 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!-- Source of the app icon. scripts/gen_app_icon.py derives appicon.ico and
        the appicon-*.png set from it. Cell colours are the first entries of
-       kPalette in src/ui/TreemapWidget.cpp; the tile is Tailwind slate-900. -->
-  <rect x="8" y="8" width="240" height="240" rx="44" fill="#0F172A"/>
-  <rect x="22" y="22" width="141.6" height="141.6" rx="8" fill="#3B82F6"/>
-  <rect x="171.6" y="22" width="62.4" height="80" rx="8" fill="#10B981"/>
-  <rect x="171.6" y="110" width="62.4" height="53.6" rx="8" fill="#F59E0B"/>
-  <rect x="22" y="171.6" width="80" height="62.4" rx="8" fill="#8B5CF6"/>
-  <rect x="110" y="171.6" width="53.6" height="62.4" rx="8" fill="#F43F5E"/>
-  <rect x="171.6" y="171.6" width="62.4" height="62.4" rx="8" fill="#06B6D4"/>
+       kPalette in src/ui/TreemapWidget.cpp. Outside the rounded outline is
+       transparent; the white plate under the cells shows only in the gaps. -->
+  <defs>
+    <clipPath id="outline">
+      <rect x="11.4" y="11.4" width="233.2" height="233.2" rx="28.6"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#outline)">
+    <rect x="11.4" y="11.4" width="233.2" height="233.2" fill="#FFFFFF"/>
+    <rect x="11.4" y="11.4" width="155.76" height="155.76" fill="#3B82F6"/>
+    <rect x="175.96" y="11.4" width="68.64" height="88" fill="#10B981"/>
+    <rect x="175.96" y="108.2" width="68.64" height="58.96" fill="#F59E0B"/>
+    <rect x="11.4" y="175.96" width="88" height="68.64" fill="#8B5CF6"/>
+    <rect x="108.2" y="175.96" width="58.96" height="68.64" fill="#F43F5E"/>
+    <rect x="175.96" y="175.96" width="68.64" height="68.64" fill="#06B6D4"/>
+  </g>
   <polygon fill="#FFFFFF"
-           points="40,132 40,50 64,50 93,90.7 122,50 146,50 146,132 122,132 122,91.3 93,132 64,91.3 64,132"/>
+           points="31.2,132.4 31.2,42.2 57.6,42.2 89.5,86.97 121.4,42.2 147.8,42.2 147.8,132.4 121.4,132.4 121.4,87.63 89.5,132.4 57.6,87.63 57.6,132.4"/>
 </svg>
